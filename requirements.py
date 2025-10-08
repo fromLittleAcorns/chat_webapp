@@ -1,0 +1,31 @@
+# FastHTML MCP Chat - Requirements
+# Updated for MonsterUI integration
+
+# Core Framework
+python-fasthtml>=0.4.0
+
+# Styling
+monsterui>=.0.29
+
+# Authentication and user management
+fasthtml-auth>=0.1.0
+
+# Database
+fastlite>=0.1.0
+
+# Anthropic/MCP Integration
+anthropic>=0.40.0
+
+# File Upload Support
+python-multipart>=0.0.9
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# ASGI Server
+uvicorn[standard]>=0.27.0
+
+# Optional: Development Tools
+# black>=24.0.0
+# mypy>=1.8.0
+# pytest>=8.0.0
