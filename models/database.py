@@ -56,7 +56,9 @@ def cleanup_old_conversations(days: int = 90):
     ).fetchall()
     
     # Delete them
-    for conv in old_convs:
-        Conversation.delete(conv['id'])
+    for conv_row in old_convs:
+        conv = Conversation.get_by_id(conv_row['id'])
+        if conv:
+            conv.delete()
     
     return len(old_convs)

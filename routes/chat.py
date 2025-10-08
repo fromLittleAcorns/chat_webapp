@@ -69,7 +69,8 @@ def register_chat_route(app):
         current_conv_id = session.get('current_conversation_id')
         if not current_conv_id or not any(c.id == current_conv_id for c in conversations):
             # Create new conversation
-            current_conv_id = Conversation.create(user['id'], "New Chat")
+            new_conv = Conversation.create(user['id'], "New Chat")
+            current_conv_id = new_conv.id
             session['current_conversation_id'] = current_conv_id
         
         # Get messages for current conversation
@@ -116,8 +117,8 @@ def register_conversation_routes(app):
         user = session.get('user')
         
         # Create new conversation
-        conv_id = Conversation.create(user['id'], "New Chat")
-        session['current_conversation_id'] = conv_id
+        new_conv = Conversation.create(user['id'], "New Chat")
+        session['current_conversation_id'] = new_conv.id
         
         # Return empty messages area
         return Div(
@@ -134,11 +135,15 @@ def register_conversation_routes(app):
         
         try:
             validate_conversation_access(conversation_id, user['id'])
-            Conversation.update_title(conversation_id, title)
             
-            # Return updated conversation list item
+            # Load and update conversation
             conv = Conversation.get_by_id(conversation_id)
-            return conversation_list_item(conv, conversation_id == session.get('current_conversation_id'))
+            if conv:
+                conv.update_title(title)
+                # Return updated conversation list item
+                return conversation_list_item(conv, conversation_id == session.get('current_conversation_id'))
+            else:
+                return Div("Conversation not found", style="color: red;")
             
         except ValueError as e:
             return Div(str(e), style="color: red;")
@@ -151,12 +156,16 @@ def register_conversation_routes(app):
         
         try:
             validate_conversation_access(conversation_id, user['id'])
-            Conversation.delete(conversation_id)
+            
+            # Load and delete conversation
+            conv = Conversation.get_by_id(conversation_id)
+            if conv:
+                conv.delete()
             
             # If this was the current conversation, create a new one
             if session.get('current_conversation_id') == conversation_id:
-                new_conv_id = Conversation.create(user['id'], "New Chat")
-                session['current_conversation_id'] = new_conv_id
+                new_conv = Conversation.create(user['id'], "New Chat")
+                session['current_conversation_id'] = new_conv.id
             
             # Return success (HTMX will remove the element)
             return ""

@@ -4,7 +4,7 @@
 """
 Conversation Model
 
-Manages conversation CRUD operations.
+Manages conversation CRUD operations with proper OOP design.
 """
 
 from datetime import datetime
@@ -26,19 +26,61 @@ if conversations not in db.t:
     db.execute("CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at)")
 
 class Conversation:
-    """Conversation management"""
+    """
+    Conversation management with proper OOP design.
     
-    @staticmethod
-    def create(user_id: int, title: str = "New Chat") -> int:
+    Instances represent actual conversations loaded from the database.
+    Class methods provide factory/query operations.
+    Instance methods operate on the conversation instance.
+    """
+    
+    def __init__(self, db_row):
         """
-        Create a new conversation
+        Initialize conversation from database row.
+        
+        Args:
+            db_row: Database row object from fastlite
+        """
+        self._data = db_row
+    
+    # Properties for clean data access
+    @property
+    def id(self) -> int:
+        """Conversation ID"""
+        return self._data.id
+    
+    @property
+    def user_id(self) -> int:
+        """ID of user who owns this conversation"""
+        return self._data.user_id
+    
+    @property
+    def title(self) -> str:
+        """Conversation title"""
+        return self._data.title
+    
+    @property
+    def created_at(self) -> str:
+        """ISO timestamp when conversation was created"""
+        return self._data.created_at
+    
+    @property
+    def updated_at(self) -> str:
+        """ISO timestamp when conversation was last updated"""
+        return self._data.updated_at
+    
+    # Class methods - factory/query operations
+    @classmethod
+    def create(cls, user_id: int, title: str = "New Chat") -> 'Conversation':
+        """
+        Create a new conversation and return its instance.
         
         Args:
             user_id: ID of user creating the conversation
             title: Conversation title
             
         Returns:
-            ID of newly created conversation
+            New Conversation instance
         """
         now = datetime.now().isoformat()
         result = conversations.insert(
@@ -47,75 +89,113 @@ class Conversation:
             created_at=now,
             updated_at=now
         )
-        return result.id if hasattr(result, 'id') else result
+        conv_id = result.id if hasattr(result, 'id') else result
+        return cls.get_by_id(conv_id)
     
-    @staticmethod
-    def get_by_id(conversation_id: int):
-        """Get conversation by ID"""
-        return conversations[conversation_id]
-    
-    @staticmethod
-    def get_by_user(user_id: int, limit: int = 50) -> list:
+    @classmethod
+    def get_by_id(cls, conversation_id: int) -> 'Conversation':
         """
-        Get all conversations for a user
+        Load conversation by ID and return instance.
+        
+        Args:
+            conversation_id: Conversation ID
+            
+        Returns:
+            Conversation instance or None if not found
+        """
+        row = conversations[conversation_id]
+        return cls(row) if row else None
+    
+    @classmethod
+    def get_by_user(cls, user_id: int, limit: int = 50) -> list['Conversation']:
+        """
+        Get all conversations for a user as instances.
         
         Args:
             user_id: User ID
             limit: Maximum conversations to return
             
         Returns:
-            List of conversations, newest first
+            List of Conversation instances, newest first
         """
-        return conversations(
+        rows = conversations(
             where=f"user_id = {user_id}",
             order_by="updated_at DESC",
             limit=limit
         )
+        return [cls(row) for row in rows]
     
-    @staticmethod
-    def update_title(conversation_id: int, title: str):
-        """Update conversation title"""
+    # Instance methods - operate on self
+    def update_title(self, title: str):
+        """
+        Update this conversation's title.
+        
+        Args:
+            title: New title
+        """
         conversations.update(
-            conversation_id,
+            self.id,
             title=title,
             updated_at=datetime.now().isoformat()
         )
+        # Refresh internal data to reflect changes
+        self._data = conversations[self.id]
     
-    @staticmethod
-    def touch(conversation_id: int):
-        """Update the updated_at timestamp"""
+    def touch(self):
+        """Update this conversation's updated_at timestamp."""
         conversations.update(
-            conversation_id,
+            self.id,
             updated_at=datetime.now().isoformat()
         )
+        # Refresh internal data to reflect changes
+        self._data = conversations[self.id]
     
-    @staticmethod
-    def delete(conversation_id: int):
+    def delete(self):
         """
-        Delete a conversation and all its messages
+        Delete this conversation and all its messages.
         
-        Args:
-            conversation_id: ID of conversation to delete
+        Note: After calling this method, the instance should not be used further.
         """
         from .message import Message
         
         # Delete messages first
-        Message.delete_by_conversation(conversation_id)
+        Message.delete_by_conversation(self.id)
         
         # Delete conversation
-        conversations.delete(conversation_id)
+        conversations.delete(self.id)
     
-    @staticmethod
-    def belongs_to_user(conversation_id: int, user_id: int) -> bool:
+    def belongs_to_user(self, user_id: int) -> bool:
         """
-        Check if conversation belongs to user
+        Check if this conversation belongs to the specified user.
         
         Args:
-            conversation_id: Conversation ID
-            user_id: User ID
+            user_id: User ID to check
             
         Returns:
             True if conversation belongs to user, False otherwise
         """
-        conv = conversations[conversation_id]
-        return conv and conv.user_id == user_id
+        return self.user_id == user_id
+    
+    def get_messages(self) -> list:
+        """
+        Get all messages for this conversation.
+        
+        Returns:
+            List of Message instances
+        """
+        from .message import Message
+        return Message.get_by_conversation(self.id)
+    
+    def get_history(self) -> list[dict]:
+        """
+        Get conversation history in Anthropic API format.
+        
+        Returns:
+            List of message dicts: [{"role": "user/assistant", "content": "..."}]
+        """
+        from .message import Message
+        return Message.get_history(self.id)
+    
+    def __repr__(self) -> str:
+        """String representation for debugging"""
+        return f"<Conversation id={self.id} user_id={self.user_id} title='{self.title}'>"

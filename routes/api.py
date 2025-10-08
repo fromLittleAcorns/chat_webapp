@@ -62,7 +62,9 @@ def register_send_route(app):
         if msg_count == 1:  # First message
             # Use first few words as title
             title = message[:50] + ("..." if len(message) > 50 else "")
-            Conversation.update_title(conv_id, title)
+            conv = Conversation.get_by_id(conv_id)
+            if conv:
+                conv.update_title(title)
         
         # Return user message + streaming placeholder
         return Div(

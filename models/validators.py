@@ -21,8 +21,14 @@ def validate_conversation_access(conversation_id: int, user_id: int) -> bool:
         True if valid
         
     Raises:
-        ValueError: If user doesn't have access
+        ValueError: If user doesn't have access or conversation not found
     """
-    if not Conversation.belongs_to_user(conversation_id, user_id):
+    conv = Conversation.get_by_id(conversation_id)
+    
+    if not conv:
+        raise ValueError("Conversation not found")
+    
+    if not conv.belongs_to_user(user_id):
         raise ValueError("Unauthorized access to conversation")
+    
     return True
