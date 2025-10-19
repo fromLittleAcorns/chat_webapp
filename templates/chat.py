@@ -14,35 +14,33 @@ from templates.components import message_bubble
 
 def chat_page(user, conversations, current_conv_id, messages):
     """
-    Complete chat interface
+    Complete chat interface with DaisyUI layout
     
     Args:
-        user: User dict from session
+        user: User object from req.scope['user']
         conversations: List of conversation objects
         current_conv_id: Currently active conversation ID
         messages: List of messages in current conversation
     """
     
-    return Html(
-        Head(
-            Title("MCP Chat - WooCommerce Search"),
-            Meta(name="viewport", content="width=device-width, initial-scale=1.0"),
-        ),
-        Body(
-            # Main container with sidebar and chat area
-            Div(
-                # Sidebar
-                sidebar(user, conversations, current_conv_id),
-                
-                # Main chat area
-                chat_area(current_conv_id, messages),
-                
-                cls="chat-container"
-            ),
+    return (
+        Title("MCP Chat - WooCommerce Search"),
+        # Main container - using DaisyUI drawer for sidebar
+        Div(
+            # Hidden checkbox required for drawer functionality
+            Input(type="checkbox", id="my-drawer", cls="drawer-toggle", checked=True),
             
-            # JavaScript for markdown rendering and auto-scroll
-            chat_scripts()
-        )
+            # Main chat area (drawer content) - MUST come before drawer-side for proper layout
+            chat_area(current_conv_id, messages),
+            
+            # Sidebar (drawer side)
+            sidebar(user, conversations, current_conv_id),
+            
+            cls="drawer lg:drawer-open"
+        ),
+        
+        # JavaScript for markdown rendering and auto-scroll
+        chat_scripts()
     )
 
 # ============================================
@@ -50,39 +48,52 @@ def chat_page(user, conversations, current_conv_id, messages):
 # ============================================
 
 def sidebar(user, conversations, current_conv_id):
-    """Conversation list sidebar"""
+    """Conversation list sidebar using DaisyUI menu"""
     
-    return Aside(
-        # Header with user info
+    return Div(
+        Label(fr="my-drawer", cls="drawer-overlay"),
         Div(
-            H3("MCP Chat"),
-            Small(f"👤 {user['username']}"),
-            A("Logout", href="/logout", role="button", cls="outline secondary"),
-            cls="sidebar-header"
+            # Header with user info
+            Div(
+                H3("MCP Chat", cls="text-xl font-bold"),
+                Div(
+                    Div("👤", cls="text-2xl"),
+                    Div(
+                        Div(user.username, cls="font-semibold"),
+                        cls="ml-2"
+                    ),
+                    cls="flex items-center mt-2"
+                ),
+                A("Logout", 
+                  href="/auth/logout", 
+                  cls="btn btn-outline btn-sm mt-3 w-full"),
+                cls="p-4 border-b"
+            ),
+            
+            # New conversation button
+            Button(
+                "➕ New Chat",
+                hx_post="/api/conversations/new",
+                hx_target="#messages",
+                hx_swap="innerHTML",
+                cls="btn btn-primary m-4 w-[calc(100%-2rem)]"
+            ),
+            
+            # Conversation list - NOT using menu class to avoid DaisyUI conflicts
+            Div(
+                *[conversation_list_item(conv, conv.id == current_conv_id) 
+                  for conv in conversations],
+                id="conversation-list",
+                cls="flex flex-col gap-2 p-4"
+            ),
+            
+            cls="h-full bg-base-200 w-80 overflow-y-auto border-r border-base-300"
         ),
-        
-        # New conversation button
-        Button(
-            "➕ New Chat",
-            hx_post="/api/conversations/new",
-            hx_target="#messages",
-            hx_swap="innerHTML",
-            cls="new-chat-btn"
-        ),
-        
-        # Conversation list
-        Div(
-            *[conversation_list_item(conv, conv.id == current_conv_id) 
-              for conv in conversations],
-            id="conversation-list",
-            cls="conversation-list"
-        ),
-        
-        cls="sidebar"
+        cls="drawer-side z-20"
     )
 
 def conversation_list_item(conversation, is_active: bool = False):
-    """Single conversation item in sidebar"""
+    """Single conversation item in sidebar - custom styling instead of DaisyUI menu"""
     
     # Format timestamp
     try:
@@ -91,32 +102,35 @@ def conversation_list_item(conversation, is_active: bool = False):
     except:
         time_str = ""
     
-    active_class = "active" if is_active else ""
+    # Active styling
+    bg_class = "bg-primary/20" if is_active else "bg-base-100"
+    text_class = "text-primary font-semibold" if is_active else ""
     
     return Div(
+        # Conversation link (takes most space)
         A(
             Div(
-                Strong(conversation.title),
-                Small(time_str, cls="timestamp"),
-                cls="conv-info"
+                Strong(conversation.title, cls=f"block text-sm {text_class}"),
+                Small(time_str, cls="text-xs opacity-70"),
+                cls="flex flex-col"
             ),
             href=f"/chat/{conversation.id}",
-            cls=f"conversation-item {active_class}"
+            cls="flex-1 min-w-0"  # min-w-0 allows text truncation to work
         ),
         
-        # Delete button (only show on hover)
+        # Delete button (fixed width, always visible on hover)
         Button(
             "🗑",
             hx_delete=f"/api/conversations/{conversation.id}",
-            hx_target="closest div",
+            hx_target=f"#conv-{conversation.id}",
             hx_swap="outerHTML",
             hx_confirm="Delete this conversation?",
-            cls="delete-btn",
+            cls="btn btn-ghost btn-xs btn-square shrink-0 opacity-0 group-hover:opacity-100 transition-opacity",
             title="Delete conversation"
         ),
         
         id=f"conv-{conversation.id}",
-        cls="conversation-wrapper"
+        cls=f"group flex items-center gap-2 p-3 rounded-lg hover:bg-base-300 {bg_class} transition-colors cursor-pointer"
     )
 
 # ============================================
@@ -124,62 +138,70 @@ def conversation_list_item(conversation, is_active: bool = False):
 # ============================================
 
 def chat_area(current_conv_id, messages):
-    """Main chat area with messages and input"""
+    """Main chat area with messages and input using DaisyUI"""
     
-    return Main(
+    return Div(
         # Messages container
         Div(
-            # Render existing messages
-            *[message_bubble(msg.role, msg.content) for msg in messages],
+            # Render existing messages with indices and conv_id
+            *[message_bubble(msg.role, msg.content, idx, current_conv_id) 
+              for idx, msg in enumerate(messages)],
             
             # If no messages, show welcome
             Div(
-                H2("👋 Welcome to MCP Chat"),
-                P("Ask questions about WooCommerce products. I'll search the database and provide detailed, evidence-based answers."),
-                P("Try asking about specific products, materials, finishes, or certifications."),
-                cls="welcome-message"
+                Div(
+                    H2("👋 Welcome to MCP Chat", cls="text-3xl font-bold mb-4"),
+                    P("Ask questions about WooCommerce products. I'll search the database and provide detailed, evidence-based answers.", 
+                      cls="text-lg mb-2"),
+                    P("Try asking about specific products, materials, finishes, or certifications.", 
+                      cls="text-base-content/70"),
+                    cls="hero-content text-center"
+                ),
+                cls="hero min-h-[60vh]"
             ) if len(messages) == 0 else None,
             
             id="messages",
-            cls="messages"
+            cls="flex flex-col gap-4 p-4 pb-32 max-w-4xl mx-auto w-full"
         ),
-        
-        # Spacer to prevent last message being hidden by input
-        Div(style="height: 120px;"),
         
         # Input form
-        input_form(),
+        input_form(current_conv_id),
         
-        cls="chat-area"
+        cls="drawer-content flex flex-col h-screen overflow-y-auto"
     )
 
-def input_form():
-    """Message input form"""
+def input_form(current_conv_id):
+    """Message input form - submits directly to WebSocket (simple pattern!)"""
     
-    return Form(
-        Div(
-            Textarea(
-                name="message",
-                id="message-input",
-                placeholder="Ask about products...",
-                rows="2",
-                required=True,
-                autocomplete="off"
+    return Div(
+        Form(
+            Div(
+                Textarea(
+                    name="msg",  # WebSocket expects 'msg'
+                    id="message-input",
+                    placeholder="Ask about products...",
+                    rows="2",
+                    required=True,
+                    autocomplete="off",
+                    cls="textarea textarea-bordered w-full resize-none"
+                ),
+                Button(
+                    "Send",
+                    type="submit",
+                    id="send-btn",
+                    cls="btn btn-primary"
+                ),
+                cls="flex gap-2 items-end"
             ),
-            Button(
-                "Send",
-                type="submit",
-                id="send-btn"
-            ),
-            cls="input-container"
+            
+            id="chat-form",
+            ws_send=True,  # Send through WebSocket!
+            hx_ext="ws",
+            ws_connect="/wscon",  # Uses session for conv_id
+            
+            cls="w-full max-w-4xl"
         ),
-        
-        hx_post="/api/chat/send",
-        hx_target="#messages",
-        hx_swap="beforeend",
-        hx_indicator="#send-btn",
-        
-        cls="input-area"
+        cls="fixed bottom-0 left-0 lg:left-80 right-0 bg-base-100 border-t p-4 z-10"
     )
 
 # ============================================
@@ -190,30 +212,52 @@ def chat_scripts():
     """JavaScript for chat functionality"""
     
     return Script("""
-        // Clear input after sending
-        document.body.addEventListener('htmx:afterRequest', function(evt) {
-            if (evt.detail.successful && evt.detail.elt.id === 'message-input') {
-                document.getElementById('message-input').value = '';
-            }
-        });
+        console.log('🚀 Chat scripts loaded');
         
-        // Render markdown after messages are added
+        // DIAGNOSTIC: Check initial DOM structure
+        console.log('📋 Initial messages HTML:', document.getElementById('messages')?.innerHTML.substring(0, 500));
+        const messageBubbles = document.querySelectorAll('.chat');
+        console.log('💬 Message bubbles found:', messageBubbles.length);
+        messageBubbles.forEach((b, i) => console.log(`  Bubble ${i}:`, b.id, b.dataset.role, b.dataset.msgIdx));
+        
+        // Log ALL HTMX events for debugging
         document.body.addEventListener('htmx:afterSwap', function(evt) {
-            // Only render unrendered message content
-            document.querySelectorAll('.message-content:not(.rendered)').forEach(function(el) {
-                try {
-                    el.innerHTML = marked.parse(el.textContent);
-                    el.classList.add('rendered');
-                    
-                    // Syntax highlighting for code blocks
-                    el.querySelectorAll('pre code').forEach(function(block) {
-                        hljs.highlightElement(block);
-                    });
-                } catch (e) {
-                    console.error('Markdown rendering error:', e);
-                }
+            console.log('🔄 HTMX afterSwap:', {
+                target: evt.detail.target,
+                target_id: evt.detail.target.id,
+                swap: evt.detail.xhr?.getResponseHeader('HX-Reswap') || 'default'
             });
         });
+        
+        document.body.addEventListener('htmx:oobBeforeSwap', function(evt) {
+            console.log('📦 HTMX oobBeforeSwap:', {
+                target: evt.detail.target,
+                target_id: evt.detail.target?.id,
+                fragment: evt.detail.fragment
+            });
+        });
+        
+        document.body.addEventListener('htmx:oobAfterSwap', function(evt) {
+            console.log('✅ HTMX oobAfterSwap:', {
+                target: evt.detail.target,
+                target_id: evt.detail.target?.id
+            });
+        });
+        
+        // WebSocket events logging
+        document.body.addEventListener('htmx:wsOpen', function(evt) {
+            console.log('🌊 WebSocket Connection Opened:', evt.detail);
+        });
+        
+        document.body.addEventListener('htmx:wsClose', function(evt) {
+            console.log('🏁 WebSocket Connection Closed:', evt.detail);
+        });
+        
+        document.body.addEventListener('htmx:wsError', function(evt) {
+            console.error('❌ WebSocket Error:', evt.detail);
+        });
+        
+        // Server-side markdown rendering is now used
         
         // Auto-scroll to bottom when new messages arrive
         function scrollToBottom() {
@@ -230,8 +274,8 @@ def chat_scripts():
             }
         });
         
-        // Scroll during streaming (SSE updates)
-        const observer = new MutationObserver(function() {
+        // Scroll during streaming (observe DOM changes)
+        const observer = new MutationObserver(function(mutations) {
             scrollToBottom();
         });
         
@@ -257,4 +301,6 @@ def chat_scripts():
         window.addEventListener('load', function() {
             document.getElementById('message-input').focus();
         });
+        
+        console.log('✅ All event listeners registered');
     """)

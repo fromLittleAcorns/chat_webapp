@@ -5,7 +5,7 @@ Handles communication with the MCP WooCommerce server via HTTP.
 The MCP server must be running separately as an HTTP service.
 """
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AsyncAnthropic
 import os
 import logging
 import httpx
@@ -32,12 +32,26 @@ class MCPClient:
         """
         self.mcp_server_url = mcp_server_url.rstrip('/')
         
-        # Initialize Anthropic client
+        # Initialize Anthropic client with beta header for MCP support
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
         
-        self.client = Anthropic(api_key=api_key)
+        # Add beta header for MCP features
+        self.client = Anthropic(
+            api_key=api_key,
+            default_headers={
+                "anthropic-beta": "mcp-client-2025-04-04"  # Beta header for MCP support
+            }
+        )
+        
+        # Also create async client for WebSocket streaming
+        self.async_client = AsyncAnthropic(
+            api_key=api_key,
+            default_headers={
+                "anthropic-beta": "mcp-client-2025-04-04"
+            }
+        )
         
         # Verify MCP server is accessible
         self._verify_mcp_server()
@@ -47,19 +61,28 @@ class MCPClient:
     def _verify_mcp_server(self):
         """Verify MCP server is running and accessible"""
         try:
-            # Simple health check - try to connect
-            response = httpx.get(f"{self.mcp_server_url}/", timeout=5.0)
+            # Try to connect to SSE endpoint (404 on root is expected for MCP servers)
+            response = httpx.get(f"{self.mcp_server_url}/sse", timeout=5.0)
+            # SSE endpoint might return 200, 400, or hang - any response means server is up
             logger.info(f"MCP server accessible at {self.mcp_server_url}")
-        except Exception as e:
+        except httpx.ConnectError as e:
+            # Connection refused - server not running
             logger.error(f"Cannot connect to MCP server at {self.mcp_server_url}: {e}")
             raise RuntimeError(
                 f"MCP server not accessible at {self.mcp_server_url}. "
                 f"Make sure it's running with: python mcp_server_http.py"
             )
+        except (httpx.TimeoutException, httpx.ReadTimeout):
+            # Timeout is actually OK for SSE endpoint (it's designed to keep connections open)
+            logger.info(f"MCP server accessible at {self.mcp_server_url} (SSE endpoint responding)")
+        except Exception as e:
+            # Other errors - log but don't fail (server might still work)
+            logger.warning(f"MCP server health check returned unexpected response: {e}")
+            logger.info(f"Proceeding anyway - MCP server may still be functional")
     
     def send_message(self, messages: list, stream: bool = True):
         """
-        Send message to Claude with MCP tools
+        Send message to Claude (without MCP tools for now)
         
         Args:
             messages: List of message dicts [{"role": "user/assistant", "content": "..."}]
@@ -69,36 +92,34 @@ class MCPClient:
             Streaming or non-streaming response from Claude
         """
         
-        # System instructions for Claude to use MCP tools effectively
+        # System instructions for Claude
         system_prompt = self._get_system_prompt()
         
-        # Configure MCP server for this request
-        # Anthropic API will connect to this MCP server to execute tools
-        tools_config = [{
-            "type": "mcp",
-            "name": "woocommerce",
-            "mcp_server": {
-                "url": self.mcp_server_url,
-                "headers": {
-                    # Add any authentication headers if needed
-                    # "Authorization": "Bearer your-token"
-                }
-            }
-        }]
-        
-        # Common parameters
+        # Common parameters (no MCP tools for now - HTTP MCP not supported by Anthropic API)
         params = {
             "model": "claude-sonnet-4-5-20250929",
             "max_tokens": 4096,
             "messages": messages,
             "system": system_prompt,
-            "tools": tools_config  # Configure MCP server endpoint
+            # TODO: Implement MCP tool calling differently
+            # The Anthropic API doesn't support HTTP MCP servers directly
         }
         
         if stream:
             return self.client.messages.stream(**params)
         else:
             return self.client.messages.create(**params)
+    
+    def get_message_stream(self, messages: list):
+        """Get streaming message context manager (not async - returns the stream directly)"""
+        system_prompt = self._get_system_prompt()
+        
+        return self.async_client.messages.stream(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=4096,
+            messages=messages,
+            system=system_prompt,
+        )
     
     def _get_system_prompt(self) -> str:
         """
@@ -108,15 +129,15 @@ class MCPClient:
         which contains the evidence-based search methodology.
         """
         try:
-            # Try to load from file in MCP server directory
+            # Import MCP_SERVER_PATH from config
             from pathlib import Path
+            from config import MCP_SERVER_PATH
             
-            # Look for system_instructions.md
-            # Try multiple locations
+            # Look for system instructions in the configured MCP server path
             possible_paths = [
-                Path("../mcp-woocommerce-server/updated_system_instructions.md"),
-                Path("./updated_system_instructions.md"),
-                Path("./system_instructions.md"),
+                MCP_SERVER_PATH / "updated_system_instructions.md",
+                MCP_SERVER_PATH / "system_instructions.md",
+                Path("./system_instructions.md"),  # Fallback to local
             ]
             
             for path in possible_paths:
@@ -125,7 +146,7 @@ class MCPClient:
                         logger.info(f"Loaded system instructions from {path}")
                         return f.read()
             
-            logger.warning("System instructions file not found, using default")
+            logger.warning(f"System instructions not found in {MCP_SERVER_PATH}, using default")
             return self._get_default_system_prompt()
                 
         except Exception as e:

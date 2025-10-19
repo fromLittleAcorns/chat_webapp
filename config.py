@@ -36,7 +36,7 @@ MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
 # Optional: Path to MCP server directory (for loading system instructions)
 MCP_SERVER_PATH = Path(os.getenv(
     "MCP_SERVER_PATH",
-    "../mcp-woocommerce-server"
+    "../pbt_prodfind"
 )).resolve()
 
 # ============================================

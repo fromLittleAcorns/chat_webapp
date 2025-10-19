@@ -40,9 +40,15 @@ class Message:
         Initialize message from database row.
         
         Args:
-            db_row: Database row object from fastlite
+            db_row: Database row object from fastlite (can be dict or object)
         """
-        self._data = db_row
+        # Handle both dict and object returns from fastlite
+        if isinstance(db_row, dict):
+            # Convert dict to object for consistent property access
+            from types import SimpleNamespace
+            self._data = SimpleNamespace(**db_row)
+        else:
+            self._data = db_row
     
     # Properties for clean data access
     @property
@@ -98,7 +104,14 @@ class Message:
         if conv:
             conv.touch()
         
-        msg_id = result.id if hasattr(result, 'id') else result
+        # Handle both dict and object returns from fastlite
+        if isinstance(result, dict):
+            msg_id = result['id']
+        elif hasattr(result, 'id'):
+            msg_id = result.id
+        else:
+            msg_id = result  # Assume it's already an int
+            
         return cls.get_by_id(msg_id)
     
     @classmethod
@@ -127,7 +140,8 @@ class Message:
             List of Message instances, oldest first
         """
         rows = messages(
-            where=f"conversation_id = {conversation_id}",
+            where="conversation_id = ?",
+            where_args=[conversation_id],
             order_by="created_at ASC"
         )
         return [cls(row) for row in rows]
@@ -174,10 +188,16 @@ class Message:
             Number of messages
         """
         result = db.execute(
-            "SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?",
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
             (conversation_id,)
         ).fetchone()
-        return result['count'] if result else 0
+        # Handle both tuple and dict returns
+        if isinstance(result, dict):
+            return result['count'] if result else 0
+        elif isinstance(result, tuple):
+            return result[0] if result else 0
+        else:
+            return result if result else 0
     
     # Instance methods - operate on self
     def to_dict(self) -> dict:

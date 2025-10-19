@@ -5,13 +5,12 @@ API endpoints for sending messages and streaming responses.
 """
 
 from fasthtml.common import *
-from starlette.responses import StreamingResponse
+from fasthtml.common import to_xml  # Import explicitly for debugging
 from models import Conversation, Message, validate_conversation_access
 from services.mcp_client import get_mcp_client
 from templates.components import message_bubble, streaming_message_bubble
 from datetime import datetime
 import asyncio
-import uuid
 
 # ============================================
 # Routes
@@ -28,16 +27,21 @@ def get_routes():
 # Send Message
 # ============================================
 
-def register_send_route(app):
+def register_send_route(app, auth):
     
     @app.post("/api/chat/send")
-    @app.require_auth
-    async def send_message(session, message: str):
+    async def send_message(req, session, message: str):
         """
         Handle sending a message and initiating streaming response
+        NOTE: This route NO LONGER saves messages - that's done in WebSocket handler
         """
-        user = session.get('user')
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        user = req.scope['user']
         conv_id = session.get('current_conversation_id')
+        
+        logger.info(f"📨 SEND MESSAGE: user={user.username}, conv={conv_id}, msg_len={len(message)}")
         
         # Validate
         if not message or len(message.strip()) == 0:
@@ -47,94 +51,182 @@ def register_send_route(app):
             return Div("Message too long (max 10,000 characters).", style="color: red;")
         
         try:
-            validate_conversation_access(conv_id, user['id'])
+            validate_conversation_access(conv_id, user.id)
         except ValueError:
             return Div("Invalid conversation.", style="color: red;")
         
-        # Save user message
-        Message.create(conv_id, 'user', message)
+        # DO NOT save message here - WebSocket handler will do it
+        # This route is deprecated and not used in current flow
         
-        # Generate unique ID for streaming response
-        response_id = str(uuid.uuid4())
+        logger.warning(f"⚠️ /api/chat/send route called - this is deprecated!")
+        
+        # Return error indicating to use WebSocket
+        return Div(
+            "Please use the WebSocket connection for sending messages.",
+            style="color: orange;"
+        )
+
+# ============================================
+# WebSocket Stream Response
+# ============================================
+
+def register_stream_route(app, auth):
+    
+    @app.ws('/wscon')
+    async def ws_chat(msg: str, send, session):
+        """
+        Handle user message and stream Claude's response (SIMPLE PATTERN)
+        
+        Uses session to get conv_id (more reliable than query params in this setup)
+        
+        Args:
+            msg: User's message text from form
+            send: FastHTML send function  
+            session: Session dict
+        """
+        import logging
+        import asyncio
+        logger = logging.getLogger(__name__)
+        
+        
+        # Get conv_id from session (set by chat route)
+        conv_id = session.get('current_conversation_id')
+        if not conv_id:
+            logger.error("❌ No conversation ID in session!")
+            await send(Div("Error: No conversation found", style="color: red;"))
+            return
+        
+        logger.info(f"🌊 WS START: conv_id={conv_id} (from session), msg_len={len(msg)}")
+        
+        if not msg or len(msg.strip()) == 0:
+            logger.warning("⚠️ Empty message received")
+            return
+        
+        # Get event loop for running sync DB operations
+        loop = asyncio.get_event_loop()
+        
+        # Save user message to database (run in executor to avoid blocking)
+        logger.info(f"💾 Saving user message to database...")
+        await loop.run_in_executor(None, Message.create, conv_id, 'user', msg.rstrip())
+        logger.info(f"✓ User message saved")
+        
+        # Get message count (run in executor)
+        msg_count = await loop.run_in_executor(None, Message.count_by_conversation, conv_id)
+        user_msg_idx = msg_count - 1  # Just saved
+        assistant_msg_idx = msg_count  # Will be next
+        
+        # Additional debugging for index calculation
+        all_messages = await loop.run_in_executor(None, Message.get_by_conversation, conv_id)
+        logger.info(f"🔍 Message IDs in DB: {[m.id for m in all_messages]}")
+        logger.info(f"🔍 Message count: {len(all_messages)}, DB count: {msg_count}")
+        logger.info(f"🆔 Message indices calculated: user={user_msg_idx}, assistant={assistant_msg_idx}")
         
         # Auto-generate title for first message
-        msg_count = Message.count_by_conversation(conv_id)
-        if msg_count == 1:  # First message
-            # Use first few words as title
-            title = message[:50] + ("..." if len(message) > 50 else "")
-            conv = Conversation.get_by_id(conv_id)
+        if msg_count == 1:
+            title = msg[:50] + ("..." if len(msg) > 50 else "")
+            conv = await loop.run_in_executor(None, Conversation.get_by_id, conv_id)
             if conv:
-                conv.update_title(title)
+                await loop.run_in_executor(None, conv.update_title, title)
         
-        # Return user message + streaming placeholder
-        return Div(
-            # User message bubble
-            message_bubble('user', message),
-            
-            # Assistant message placeholder with SSE connection
-            streaming_message_bubble(response_id, conv_id, message)
+        # Send user message bubble (use OOB with target selector)
+        logger.info(f"👤 Sending user message bubble (conv={conv_id}, idx={user_msg_idx})")
+        user_bubble = message_bubble('user', msg.rstrip(), user_msg_idx, conv_id)
+        logger.info(f"🔍 User bubble type: {type(user_bubble)}, tag: {getattr(user_bubble, 'tag', 'no tag')}")
+        user_bubble.attrs['hx-swap-oob'] = 'beforeend:#messages'
+        
+        # Debug: check what HTML is being sent
+        html_output = to_xml(user_bubble)
+        logger.info(f"📤 HTML being sent (first 300 chars): {html_output[:300]}")
+        await send(user_bubble)
+        
+        # Clear input
+        logger.info(f"🧹 Sending clear input")
+        await send(
+            Textarea(
+                name="msg",
+                id="message-input",
+                placeholder="Ask about products...",
+                rows="2",
+                required=True,
+                autocomplete="off",
+                hx_swap_oob="true"
+            )
         )
-
-# ============================================
-# Stream Response
-# ============================================
-
-def register_stream_route(app):
-    
-    @app.get("/api/chat/stream")
-    @app.require_auth
-    async def stream_response(session, response_id: str, conversation_id: int, message: str):
-        """
-        Stream Claude's response using Server-Sent Events (SSE)
-        """
-        user = session.get('user')
         
-        # Validate access
+        # Get conversation history from database (run in executor)
+        logger.info(f"📚 Loading conversation history from database...")
+        history = await loop.run_in_executor(None, Message.get_history, conv_id)
+        logger.info(f"✓ Loaded {len(history)} messages")
+        
         try:
-            validate_conversation_access(conversation_id, user['id'])
-        except ValueError:
-            async def error_stream():
-                yield "data: Error: Unauthorized access\n\n"
-                yield "event: close\ndata: \n\n"
-            return StreamingResponse(error_stream(), media_type="text/event-stream")
-        
-        # Get conversation history
-        history = Message.get_history(conversation_id)
-        
-        async def generate():
-            """Generate streaming response"""
-            try:
-                # Get MCP client
-                mcp_client = get_mcp_client()
-                
-                # Stream response from Claude
-                full_response = ""
-                
-                async with mcp_client.send_message(history, stream=True) as stream:
-                    async for text in stream.text_stream:
-                        full_response += text
-                        # Send chunk to client
-                        yield f"data: {text}\n\n"
-                        await asyncio.sleep(0)  # Allow other tasks to run
-                
-                # Save complete assistant response
-                Message.create(conversation_id, 'assistant', full_response)
-                
-                # Signal completion
-                yield "event: close\ndata: \n\n"
-                
-            except Exception as e:
-                import logging
-                logging.error(f"Streaming error: {e}")
-                yield f"data: [Error: {str(e)}]\n\n"
-                yield "event: close\ndata: \n\n"
-        
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"  # Disable nginx buffering
-            }
-        )
+            # Get MCP client
+            logger.info("📡 Getting MCP client...")
+            mcp_client = get_mcp_client()
+            logger.info("✓ MCP client obtained")
+            
+            # Send empty assistant bubble (with content ID for streaming)
+            logger.info(f"🎨 Sending empty assistant bubble (conv={conv_id}, idx={assistant_msg_idx})")
+            assistant_bubble = message_bubble('assistant', '', assistant_msg_idx, conv_id, for_streaming=True)
+            logger.info(f"🔍 Assistant bubble type: {type(assistant_bubble)}, tag: {getattr(assistant_bubble, 'tag', 'no tag')}")
+            assistant_bubble.attrs['hx-swap-oob'] = 'beforeend:#messages'
+            
+            # Debug: check what HTML is being sent
+            html_output = to_xml(assistant_bubble)
+            logger.info(f"📤 Assistant HTML being sent (first 300 chars): {html_output[:300]}")
+            await send(assistant_bubble)
+            logger.info("✓ Empty bubble sent")
+            
+            full_response = ""
+            chunk_count = 0
+            
+            logger.info("🤖 Calling Claude API (async)...")
+            
+            # Stream chunks into the bubble's content div
+            async with mcp_client.get_message_stream(history) as stream:
+                logger.info("✓ Claude stream opened, starting to receive chunks...")
+                async for text in stream.text_stream:
+                    chunk_count += 1
+                    full_response += text
+                    
+                    # Send chunk as Span targeting the content div (no id on Span!)
+                    await send(
+                        Span(
+                            text,
+                            hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
+                        )
+                    )
+                    
+                    if chunk_count <= 3:
+                        logger.info(f"📤 Chunk {chunk_count}: {repr(text[:30])}")
+                    elif chunk_count % 20 == 0:
+                        logger.info(f"📤 Chunk {chunk_count} (every 20th logged)")
+            
+            logger.info(f"✅ Stream complete: {chunk_count} chunks, {len(full_response)} chars")
+            
+            # Render markdown on server using MonsterUI
+            logger.info("🎨 Rendering markdown on server...")
+            from monsterui.franken import render_md
+            rendered_html = render_md(full_response)
+            logger.info(f"✓ Markdown rendered: {len(rendered_html)} chars of HTML")
+            
+            # Send final rendered content to replace the streamed text
+            await send(
+                Div(
+                    NotStr(rendered_html),  # Use NotStr to prevent escaping
+                    id=f"content-{conv_id}-{assistant_msg_idx}",
+                    cls="message-content",
+                    hx_swap_oob="true"
+                )
+            )
+            logger.info("✓ Final rendered content sent")
+            
+            # Save complete assistant response (run in executor to avoid blocking)
+            logger.info(f"💾 Saving complete response to database...")
+            await loop.run_in_executor(None, Message.create, conv_id, 'assistant', full_response)
+            logger.info("✓ Response saved")
+            
+            logger.info("✅ WebSocket stream finished successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ STREAMING ERROR: {e}", exc_info=True)
+            await send(Div(f"Error: {str(e)}", style="color: red;"))

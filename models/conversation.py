@@ -39,9 +39,15 @@ class Conversation:
         Initialize conversation from database row.
         
         Args:
-            db_row: Database row object from fastlite
+            db_row: Database row object from fastlite (can be dict or object)
         """
-        self._data = db_row
+        # Handle both dict and object returns from fastlite
+        if isinstance(db_row, dict):
+            # Convert dict to object for consistent property access
+            from types import SimpleNamespace
+            self._data = SimpleNamespace(**db_row)
+        else:
+            self._data = db_row
     
     # Properties for clean data access
     @property
@@ -89,7 +95,15 @@ class Conversation:
             created_at=now,
             updated_at=now
         )
-        conv_id = result.id if hasattr(result, 'id') else result
+        
+        # Handle both dict and object returns from fastlite
+        if isinstance(result, dict):
+            conv_id = result['id']
+        elif hasattr(result, 'id'):
+            conv_id = result.id
+        else:
+            conv_id = result  # Assume it's already an int
+            
         return cls.get_by_id(conv_id)
     
     @classmethod
@@ -119,7 +133,8 @@ class Conversation:
             List of Conversation instances, newest first
         """
         rows = conversations(
-            where=f"user_id = {user_id}",
+            where="user_id = ?",
+            where_args=[user_id],
             order_by="updated_at DESC",
             limit=limit
         )
@@ -133,22 +148,34 @@ class Conversation:
         Args:
             title: New title
         """
-        conversations.update(
-            self.id,
-            title=title,
-            updated_at=datetime.now().isoformat()
-        )
-        # Refresh internal data to reflect changes
-        self._data = conversations[self.id]
+        # Use fastlite's update with dictionary format (proper fastlite pattern)
+        conversations.update({
+            "id": self.id,
+            "title": title,
+            "updated_at": datetime.now().isoformat()
+        })
+        # Refresh internal data
+        refreshed_row = conversations[self.id]
+        if isinstance(refreshed_row, dict):
+            from types import SimpleNamespace
+            self._data = SimpleNamespace(**refreshed_row)
+        else:
+            self._data = refreshed_row
     
     def touch(self):
         """Update this conversation's updated_at timestamp."""
-        conversations.update(
-            self.id,
-            updated_at=datetime.now().isoformat()
-        )
-        # Refresh internal data to reflect changes
-        self._data = conversations[self.id]
+        # Use fastlite's update with dictionary format (proper fastlite pattern)
+        conversations.update({
+            "id": self.id,
+            "updated_at": datetime.now().isoformat()
+        })
+        # Refresh internal data
+        refreshed_row = conversations[self.id]
+        if isinstance(refreshed_row, dict):
+            from types import SimpleNamespace
+            self._data = SimpleNamespace(**refreshed_row)
+        else:
+            self._data = refreshed_row
     
     def delete(self):
         """
