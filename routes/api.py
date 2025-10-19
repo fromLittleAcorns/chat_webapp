@@ -9,6 +9,7 @@ from fasthtml.common import to_xml  # Import explicitly for debugging
 from models import Conversation, Message, validate_conversation_access
 from services.mcp_client import get_mcp_client
 from templates.components import message_bubble, streaming_message_bubble
+from templates.chat import conversation_list_item
 from datetime import datetime
 import asyncio
 
@@ -73,7 +74,7 @@ def register_send_route(app, auth):
 def register_stream_route(app, auth):
     
     @app.ws('/wscon')
-    async def ws_chat(msg: str, send, session):
+    async def ws_chat(msg: str, send, session, req):
         """
         Handle user message and stream Claude's response (SIMPLE PATTERN)
         
@@ -83,11 +84,14 @@ def register_stream_route(app, auth):
             msg: User's message text from form
             send: FastHTML send function  
             session: Session dict
+            req: Request object (for user info)
         """
         import logging
         import asyncio
         logger = logging.getLogger(__name__)
         
+        # Get user from request scope
+        user = req.scope.get('user')
         
         # Get conv_id from session (set by chat route)
         conv_id = session.get('current_conversation_id')
@@ -121,12 +125,20 @@ def register_stream_route(app, auth):
         logger.info(f"🔍 Message count: {len(all_messages)}, DB count: {msg_count}")
         logger.info(f"🆔 Message indices calculated: user={user_msg_idx}, assistant={assistant_msg_idx}")
         
-        # Auto-generate title for first message
+        # Auto-generate title for first message and update sidebar
         if msg_count == 1:
             title = msg[:50] + ("..." if len(msg) > 50 else "")
             conv = await loop.run_in_executor(None, Conversation.get_by_id, conv_id)
             if conv:
                 await loop.run_in_executor(None, conv.update_title, title)
+                logger.info(f"📝 Updated conversation title to: {title}")
+                
+                # Send OOB update for the conversation list item
+                if user:
+                    updated_conv_item = conversation_list_item(conv, True)  # True = is_active
+                    updated_conv_item.attrs['hx-swap-oob'] = 'true'
+                    await send(updated_conv_item)
+                    logger.info("✓ Sent OOB update for conversation title")
         
         # Send user message bubble (use OOB with target selector)
         logger.info(f"👤 Sending user message bubble (conv={conv_id}, idx={user_msg_idx})")
