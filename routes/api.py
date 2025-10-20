@@ -74,7 +74,7 @@ def register_send_route(app, auth):
 def register_stream_route(app, auth):
     
     @app.ws('/wscon')
-    async def ws_chat(msg: str, send, session, req):
+    async def ws_chat(msg: str, send, session):
         """
         Handle user message and stream Claude's response (SIMPLE PATTERN)
         
@@ -84,14 +84,11 @@ def register_stream_route(app, auth):
             msg: User's message text from form
             send: FastHTML send function  
             session: Session dict
-            req: Request object (for user info)
+            ws: websocket
         """
         import logging
         import asyncio
         logger = logging.getLogger(__name__)
-        
-        # Get user from request scope
-        user = req.scope.get('user')
         
         # Get conv_id from session (set by chat route)
         conv_id = session.get('current_conversation_id')
@@ -99,7 +96,7 @@ def register_stream_route(app, auth):
             logger.error("❌ No conversation ID in session!")
             await send(Div("Error: No conversation found", style="color: red;"))
             return
-        
+    
         logger.info(f"🌊 WS START: conv_id={conv_id} (from session), msg_len={len(msg)}")
         
         if not msg or len(msg.strip()) == 0:
@@ -134,11 +131,10 @@ def register_stream_route(app, auth):
                 logger.info(f"📝 Updated conversation title to: {title}")
                 
                 # Send OOB update for the conversation list item
-                if user:
-                    updated_conv_item = conversation_list_item(conv, True)  # True = is_active
-                    updated_conv_item.attrs['hx-swap-oob'] = 'true'
-                    await send(updated_conv_item)
-                    logger.info("✓ Sent OOB update for conversation title")
+                updated_conv_item = conversation_list_item(conv, True)  # True = is_active
+                updated_conv_item.attrs['hx-swap-oob'] = 'true'
+                await send(updated_conv_item)
+                logger.info("✓ Sent OOB update for conversation title")
         
         # Send user message bubble (use OOB with target selector)
         logger.info(f"👤 Sending user message bubble (conv={conv_id}, idx={user_msg_idx})")
@@ -161,6 +157,7 @@ def register_stream_route(app, auth):
                 rows="2",
                 required=True,
                 autocomplete="off",
+                cls="textarea textarea-bordered w-full resize-none",
                 hx_swap_oob="true"
             )
         )
