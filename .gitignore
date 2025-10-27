@@ -70,8 +70,18 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
+
+# Ignore database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.sqlite
+data/*.sqlite3
+
+# But keep the directory structure
+!data/.gitkeep
+
 # Project specific
-data/
 *.db
 *.sqlite
 *.sqlite3
