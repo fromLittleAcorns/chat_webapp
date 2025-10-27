@@ -13,6 +13,15 @@ import config
 from models import init_database
 from services.mcp_client import init_mcp_client
 
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Check if we're in production
+IS_PRODUCTION = os.getenv('ENVIRONMENT', 'development') == 'production'
+
 # ============================================
 # Initialize Authentication
 # ============================================
@@ -211,23 +220,10 @@ async def startup():
 # ============================================
 # Main
 # ============================================
-
+  
 if __name__ == "__main__":
-    import uvicorn
-    
-    # Development server
-    if config.DEBUG:
-        print("\n🚀 Starting FastHTML MCP Chat...")
-        print("🔐 Default admin user: username='admin', password='admin123'")
-        print(f"🌐 Visit: http://localhost:{config.PORT}")
-        print("=" * 60)
-        uvicorn.run(
-            "app:app",
-            host=config.HOST,
-            port=config.PORT,
-            reload=True,
-            log_level="info"
-        )
-    else:
-        # Production
-        serve()
+    serve(
+        host='0.0.0.0',  # Listen on all interfaces
+        port=int(os.getenv('PORT', 5001)),
+        reload=not IS_PRODUCTION  # Only auto-reload in development
+    )
