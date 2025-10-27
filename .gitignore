@@ -47,6 +47,7 @@ cover/
 # Virtual environments
 .env
 .venv
+.prod_env
 env/
 venv/
 ENV/

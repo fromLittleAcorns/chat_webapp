@@ -5,7 +5,7 @@
 python-fasthtml>=0.4.0
 
 # Styling
-monsterui>=.0.29
+monsterui>=0.29
 
 # Authentication and user management
 fasthtml-auth>=0.1.0
