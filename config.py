@@ -55,6 +55,17 @@ REQUIRE_PASSWORD_LOWERCASE = True
 REQUIRE_PASSWORD_DIGIT = True
 
 # ============================================
+# Authentication Settings
+# ============================================
+
+ALLOW_REGISTRATION = os.getenv("ALLOW_REGISTRATION", "True").lower() == "true"
+
+# Initial admin user (for setup_db.py only)
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
+
+# ============================================
 # Anthropic/MCP Settings
 # ============================================
 

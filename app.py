@@ -13,24 +13,17 @@ import config
 from models import init_database
 from services.mcp_client import init_mcp_client
 
-import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-# Check if we're in production
-IS_PRODUCTION = os.getenv('ENVIRONMENT', 'development') == 'production'
+# No need to load dotenv here - config.py already does it
 
 # ============================================
 # Initialize Authentication
 # ============================================
 
-# Initialize auth system
+# Initialize auth system using config
 auth = AuthManager(
     db_path=str(config.USERS_DB_PATH),
     config={
-        'allow_registration': True,
+        'allow_registration': config.ALLOW_REGISTRATION,
         'public_paths': [],  # No public paths - all routes require auth except /auth/*
         'login_path': '/auth/login',
     }
@@ -223,7 +216,7 @@ async def startup():
   
 if __name__ == "__main__":
     serve(
-        host='0.0.0.0',  # Listen on all interfaces
-        port=int(os.getenv('PORT', 5001)),
-        reload=not IS_PRODUCTION  # Only auto-reload in development
+        host=config.HOST,
+        port=config.PORT,
+        reload=config.RELOAD
     )

@@ -84,7 +84,6 @@ def register_stream_route(app, auth):
             msg: User's message text from form
             send: FastHTML send function  
             session: Session dict
-            ws: websocket
         """
         import logging
         import asyncio
@@ -108,8 +107,28 @@ def register_stream_route(app, auth):
         
         # Save user message to database (run in executor to avoid blocking)
         logger.info(f"💾 Saving user message to database...")
-        await loop.run_in_executor(None, Message.create, conv_id, 'user', msg.rstrip())
-        logger.info(f"✓ User message saved")
+        try:
+            await loop.run_in_executor(None, Message.create, conv_id, 'user', msg.rstrip())
+            logger.info(f"✓ User message saved")
+        except Exception as e:
+            logger.error(f"❌ Failed to save message to conversation {conv_id}: {e}")
+            logger.error(f"❌ This usually means conversation {conv_id} doesn't exist")
+            
+            # Try to create a new conversation as fallback
+            try:
+                logger.info(f"🔧 Creating new conversation as fallback...")
+                new_conv = await loop.run_in_executor(None, Conversation.create, 1, "New Chat")  # Assuming user_id=1
+                session['current_conversation_id'] = new_conv.id
+                logger.info(f"✓ Created fallback conversation {new_conv.id}")
+                
+                # Now try to save the message again
+                await loop.run_in_executor(None, Message.create, new_conv.id, 'user', msg.rstrip())
+                logger.info(f"✓ User message saved to fallback conversation")
+                conv_id = new_conv.id  # Update conv_id for rest of function
+            except Exception as e2:
+                logger.error(f"❌ Fallback also failed: {e2}")
+                await send(Div("Error saving message. Please refresh the page.", style="color: red;"))
+                return
         
         # Get message count (run in executor)
         msg_count = await loop.run_in_executor(None, Message.count_by_conversation, conv_id)
@@ -190,25 +209,85 @@ def register_stream_route(app, auth):
             
             logger.info("🤖 Calling Claude API (async)...")
             
-            # Stream chunks into the bubble's content div
+            # Handle streaming with potential tool calls
             async with mcp_client.get_message_stream(history) as stream:
                 logger.info("✓ Claude stream opened, starting to receive chunks...")
-                async for text in stream.text_stream:
-                    chunk_count += 1
-                    full_response += text
+                
+                # Check if we need to handle tool calls
+                message = await stream.get_final_message()
+                
+                # Check for tool calls in the message content
+                tool_calls = []
+                for content_block in message.content:
+                    if hasattr(content_block, 'type') and content_block.type == 'tool_use':
+                        tool_calls.append(content_block)
+                
+                if tool_calls:
+                    logger.info(f"🔧 Claude wants to use {len(tool_calls)} tool(s)")
                     
-                    # Send chunk as Span targeting the content div (no id on Span!)
-                    await send(
-                        Span(
-                            text,
-                            hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
-                        )
-                    )
+                    # Process tool calls
+                    tool_results = []
+                    for tool_use in tool_calls:
+                        tool_name = tool_use.name
+                        tool_args = tool_use.input
+                        tool_id = tool_use.id
+                        
+                        logger.info(f"🔧 Calling tool: {tool_name} with args: {tool_args}")
+                        
+                        # Call the MCP tool
+                        result = await mcp_client.call_mcp_tool(tool_name, tool_args)
+                        
+                        # Add to history for next Claude call
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": str(result)
+                        })
                     
-                    if chunk_count <= 3:
-                        logger.info(f"📤 Chunk {chunk_count}: {repr(text[:30])}")
-                    elif chunk_count % 20 == 0:
-                        logger.info(f"📤 Chunk {chunk_count} (every 20th logged)")
+                    # Add tool use message and results to history
+                    history.append({
+                        "role": "assistant", 
+                        "content": message.content
+                    })
+                    
+                    history.append({
+                        "role": "user",
+                        "content": tool_results
+                    })
+                    
+                    # Get Claude's final response after tool use
+                    logger.info("🤖 Getting Claude's final response after tool use...")
+                    async with mcp_client.get_message_stream(history) as final_stream:
+                        async for text in final_stream.text_stream:
+                            chunk_count += 1
+                            full_response += text
+                            
+                            # Send chunk as Span targeting the content div
+                            await send(
+                                Span(
+                                    text,
+                                    hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
+                                )
+                            )
+                            
+                            if chunk_count <= 3:
+                                logger.info(f"📤 Chunk {chunk_count}: {repr(text[:30])}")
+                            elif chunk_count % 20 == 0:
+                                logger.info(f"📤 Chunk {chunk_count} (every 20th logged)")
+                else:
+                    # No tool use, stream normally
+                    for content_block in message.content:
+                        if hasattr(content_block, 'text'):
+                            text = content_block.text
+                            full_response += text
+                            
+                            # Send text to frontend
+                            await send(
+                                Span(
+                                    text,
+                                    hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
+                                )
+                            )
             
             logger.info(f"✅ Stream complete: {chunk_count} chunks, {len(full_response)} chars")
             
