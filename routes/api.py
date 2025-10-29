@@ -209,85 +209,83 @@ def register_stream_route(app, auth):
             
             logger.info("🤖 Calling Claude API (async)...")
             
-            # Handle streaming with potential tool calls
-            async with mcp_client.get_message_stream(history) as stream:
-                logger.info("✓ Claude stream opened, starting to receive chunks...")
+            # Handle iterative tool calling - Claude can make multiple rounds of tool calls
+            max_tool_rounds = 10  # Generous limit for complex search strategies
+            tool_round = 0
+            
+            while tool_round < max_tool_rounds:
+                tool_round += 1
+                logger.info(f"🔄 Tool calling round {tool_round}")
                 
-                # Check if we need to handle tool calls
-                message = await stream.get_final_message()
-                
-                # Check for tool calls in the message content
-                tool_calls = []
-                for content_block in message.content:
-                    if hasattr(content_block, 'type') and content_block.type == 'tool_use':
-                        tool_calls.append(content_block)
-                
-                if tool_calls:
-                    logger.info(f"🔧 Claude wants to use {len(tool_calls)} tool(s)")
+                async with mcp_client.get_message_stream(history) as stream:
+                    # Check if we need to handle tool calls
+                    message = await stream.get_final_message()
                     
-                    # Process tool calls
-                    tool_results = []
-                    for tool_use in tool_calls:
-                        tool_name = tool_use.name
-                        tool_args = tool_use.input
-                        tool_id = tool_use.id
-                        
-                        logger.info(f"🔧 Calling tool: {tool_name} with args: {tool_args}")
-                        
-                        # Call the MCP tool
-                        result = await mcp_client.call_mcp_tool(tool_name, tool_args)
-                        
-                        # Add to history for next Claude call
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tool_id,
-                            "content": str(result)
-                        })
-                    
-                    # Add tool use message and results to history
-                    history.append({
-                        "role": "assistant", 
-                        "content": message.content
-                    })
-                    
-                    history.append({
-                        "role": "user",
-                        "content": tool_results
-                    })
-                    
-                    # Get Claude's final response after tool use
-                    logger.info("🤖 Getting Claude's final response after tool use...")
-                    async with mcp_client.get_message_stream(history) as final_stream:
-                        async for text in final_stream.text_stream:
-                            chunk_count += 1
-                            full_response += text
-                            
-                            # Send chunk as Span targeting the content div
-                            await send(
-                                Span(
-                                    text,
-                                    hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
-                                )
-                            )
-                            
-                            if chunk_count <= 3:
-                                logger.info(f"📤 Chunk {chunk_count}: {repr(text[:30])}")
-                            elif chunk_count % 20 == 0:
-                                logger.info(f"📤 Chunk {chunk_count} (every 20th logged)")
-                else:
-                    # No tool use, stream normally
+                    # Check for tool calls in the message content
+                    tool_calls = []
                     for content_block in message.content:
-                        if hasattr(content_block, 'text'):
-                            text = content_block.text
-                            full_response += text
+                        if hasattr(content_block, 'type') and content_block.type == 'tool_use':
+                            tool_calls.append(content_block)
+                    
+                    if tool_calls:
+                        logger.info(f"🔧 Claude wants to use {len(tool_calls)} tool(s) in round {tool_round}")
+                        
+                        # Process tool calls
+                        tool_results = []
+                        for tool_use in tool_calls:
+                            tool_name = tool_use.name
+                            tool_args = tool_use.input
+                            tool_id = tool_use.id
                             
-                            # Send text to frontend
-                            await send(
-                                Span(
-                                    text,
-                                    hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
+                            logger.info(f"🔧 Calling tool: {tool_name} with args: {tool_args}")
+                            
+                            # Call the MCP tool
+                            result = await mcp_client.call_mcp_tool(tool_name, tool_args)
+                            
+                            # Add to history for next Claude call
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": tool_id,
+                                "content": str(result)
+                            })
+                        
+                        # Add tool use message and results to history
+                        history.append({
+                            "role": "assistant", 
+                            "content": message.content
+                        })
+                        
+                        history.append({
+                            "role": "user",
+                            "content": tool_results
+                        })
+                        
+                        # Continue loop to see if Claude wants to use more tools
+                        continue
+                    
+                    else:
+                        # No more tool calls - this is Claude's final response
+                        logger.info(f"✅ Claude finished with tool calling after {tool_round} rounds")
+                        
+                        # Stream the final response
+                        for content_block in message.content:
+                            if hasattr(content_block, 'text'):
+                                text = content_block.text
+                                full_response += text
+                                
+                                # Send text to frontend
+                                await send(
+                                    Span(
+                                        text,
+                                        hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
+                                    )
                                 )
-                            )
+                        
+                        # Exit the tool calling loop
+                        break
+            
+            if tool_round >= max_tool_rounds:
+                logger.warning(f"⚠️ Hit maximum tool rounds ({max_tool_rounds}), stopping")
             
             logger.info(f"✅ Stream complete: {chunk_count} chunks, {len(full_response)} chars")
             
