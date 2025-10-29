@@ -218,6 +218,9 @@ def register_stream_route(app, auth):
                 logger.info(f"🔄 Tool calling round {tool_round}")
                 
                 async with mcp_client.get_message_stream(history) as stream:
+                    # First check if there are tool calls by peeking at stream without consuming it
+                    # We'll do this by getting the final message first, then start a new stream for final response if needed
+                    
                     # Check if we need to handle tool calls
                     message = await stream.get_final_message()
                     
@@ -264,22 +267,27 @@ def register_stream_route(app, auth):
                         continue
                     
                     else:
-                        # No more tool calls - this is Claude's final response
-                        logger.info(f"✅ Claude finished with tool calling after {tool_round} rounds")
+                        # No more tool calls - start fresh stream for final response
+                        logger.info(f"✅ Claude finished with tool calling after {tool_round} rounds, starting fresh stream for final response")
                         
-                        # Stream the final response
-                        for content_block in message.content:
-                            if hasattr(content_block, 'text'):
-                                text = content_block.text
+                        # Start a new stream for the final response to get proper streaming
+                        async with mcp_client.get_message_stream(history) as final_stream:
+                            async for text in final_stream.text_stream:
+                                chunk_count += 1
                                 full_response += text
                                 
-                                # Send text to frontend
+                                # Send chunk as Span targeting the content div
                                 await send(
                                     Span(
                                         text,
                                         hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
                                     )
                                 )
+                                
+                                if chunk_count <= 3:
+                                    logger.info(f"📤 Final chunk {chunk_count}: {repr(text[:30])}")
+                                elif chunk_count % 20 == 0:
+                                    logger.info(f"📤 Final chunk {chunk_count} (every 20th logged)")
                         
                         # Exit the tool calling loop
                         break
