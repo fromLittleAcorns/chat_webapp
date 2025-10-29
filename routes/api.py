@@ -233,14 +233,56 @@ def register_stream_route(app, auth):
                     if tool_calls:
                         logger.info(f"🔧 Claude wants to use {len(tool_calls)} tool(s) in round {tool_round}")
                         
-                        # Process tool calls
+                        # Send user feedback about what's happening
+                        if tool_round == 1:
+                            feedback_msg = "🔍 Searching database..."
+                        elif tool_round == 2:
+                            feedback_msg = "🔄 Trying broader search terms..."
+                        elif tool_round == 3:
+                            feedback_msg = "📊 Analyzing product details..."
+                        elif tool_round == 4:
+                            feedback_msg = "🔎 Verifying specifications..."
+                        else:
+                            feedback_msg = f"🔧 Processing search (step {tool_round})..."
+                        
+                        # Send feedback message to the content div
+                        await send(
+                            Div(
+                                feedback_msg,
+                                id=f"feedback-{conv_id}-{assistant_msg_idx}",
+                                style="color: #666; font-style: italic; opacity: 0.8; margin: 8px 0;",
+                                hx_swap_oob=f"innerHTML:#content-{conv_id}-{assistant_msg_idx}"
+                            )
+                        )
+                        
+                        # Process tool calls with periodic feedback
                         tool_results = []
+                        import time
+                        start_time = time.time()
+                        thinking_count = 0
+                        
                         for tool_use in tool_calls:
                             tool_name = tool_use.name
                             tool_args = tool_use.input
                             tool_id = tool_use.id
                             
                             logger.info(f"🔧 Calling tool: {tool_name} with args: {tool_args}")
+                            
+                            # Show detailed progress during longer operations
+                            if tool_name in ['llm_search_products', 'smart_search_products']:
+                                progress_msg = feedback_msg + " (searching)"
+                            elif tool_name == 'get_product_by_sku':
+                                progress_msg = feedback_msg + " (fetching details)"
+                            else:
+                                progress_msg = feedback_msg + " (processing)"
+                            
+                            await send(
+                                Div(
+                                    progress_msg,
+                                    style="color: #666; font-style: italic; opacity: 0.8; margin: 8px 0;",
+                                    hx_swap_oob=f"innerHTML:#content-{conv_id}-{assistant_msg_idx}"
+                                )
+                            )
                             
                             # Call the MCP tool
                             result = await mcp_client.call_mcp_tool(tool_name, tool_args)
@@ -270,24 +312,83 @@ def register_stream_route(app, auth):
                         # No more tool calls - start fresh stream for final response
                         logger.info(f"✅ Claude finished with tool calling after {tool_round} rounds, starting fresh stream for final response")
                         
-                        # Start a new stream for the final response to get proper streaming
-                        async with mcp_client.get_message_stream(history) as final_stream:
-                            async for text in final_stream.text_stream:
-                                chunk_count += 1
-                                full_response += text
-                                
-                                # Send chunk as Span targeting the content div
-                                await send(
-                                    Span(
-                                        text,
-                                        hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
+                        # Show thinking indicator while waiting for final response
+                        await send(
+                            Div(
+                                "🤔 Preparing response...",
+                                style="color: #666; font-style: italic; opacity: 0.8; margin: 8px 0;",
+                                hx_swap_oob=f"innerHTML:#content-{conv_id}-{assistant_msg_idx}"
+                            )
+                        )
+                        
+                        # Create a background task to show periodic thinking updates
+                        import asyncio
+                        import time
+                        
+                        thinking_task = None
+                        async def show_thinking_dots():
+                            """Show animated thinking indicator every 3 seconds"""
+                            await asyncio.sleep(3)  # Wait 3 seconds before first update
+                            dots_count = 1
+                            while True:
+                                dots = "." * (dots_count % 4)  # Cycle through ., .., ..., then back to .
+                                thinking_msg = f"🤔 Preparing response{dots}"
+                                try:
+                                    await send(
+                                        Div(
+                                            thinking_msg,
+                                            style="color: #666; font-style: italic; opacity: 0.8; margin: 8px 0;",
+                                            hx_swap_oob=f"innerHTML:#content-{conv_id}-{assistant_msg_idx}"
+                                        )
                                     )
-                                )
+                                except:
+                                    break  # Stop if sending fails (connection closed)
+                                dots_count += 1
+                                await asyncio.sleep(3)
+                        
+                        # Start thinking animation
+                        thinking_task = asyncio.create_task(show_thinking_dots())
+                        
+                        try:
+                            # Start a new stream for the final response to get proper streaming
+                            async with mcp_client.get_message_stream(history) as final_stream:
+                                # Cancel the thinking animation once we start streaming
+                                if thinking_task:
+                                    thinking_task.cancel()
                                 
-                                if chunk_count <= 3:
-                                    logger.info(f"📤 Final chunk {chunk_count}: {repr(text[:30])}")
-                                elif chunk_count % 20 == 0:
-                                    logger.info(f"📤 Final chunk {chunk_count} (every 20th logged)")
+                                # Don't clear the content div - let the first chunk replace the thinking indicator
+                                first_chunk = True
+                            
+                                async for text in final_stream.text_stream:
+                                    chunk_count += 1
+                                    full_response += text
+                                    
+                                    if first_chunk:
+                                        # First chunk replaces the thinking indicator
+                                        await send(
+                                            Span(
+                                                text,
+                                                hx_swap_oob=f"innerHTML:#content-{conv_id}-{assistant_msg_idx}"
+                                            )
+                                        )
+                                        first_chunk = False
+                                    else:
+                                        # Subsequent chunks append
+                                        await send(
+                                            Span(
+                                                text,
+                                                hx_swap_oob=f"beforeend:#content-{conv_id}-{assistant_msg_idx}"
+                                            )
+                                        )
+                                    
+                                    if chunk_count <= 3:
+                                        logger.info(f"📤 Final chunk {chunk_count}: {repr(text[:30])}")
+                                    elif chunk_count % 20 == 0:
+                                        logger.info(f"📤 Final chunk {chunk_count} (every 20th logged)")
+                        finally:
+                            # Always cancel the thinking task when done
+                            if thinking_task:
+                                thinking_task.cancel()
                         
                         # Exit the tool calling loop
                         break
