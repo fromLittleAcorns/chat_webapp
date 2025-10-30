@@ -53,53 +53,26 @@ class MCPClient:
     maintaining the ability to serve Claude Desktop via true MCP protocol.
     """
     
-    def __init__(self, mcp_server_url: str):
+    def __init__(self):
         """
-        Initialize MCP client
-        
-        Args:
-            mcp_server_url: URL of MCP server (e.g., "http://localhost:8000")
+        Initialize Product Search Client
+
+        Sets up Anthropic client for Claude API calls with database access via function calling.
+        No HTTP MCP server required - uses direct database integration.
         """
-        self.mcp_server_url = mcp_server_url.rstrip('/')
-        
         # Initialize Anthropic client (simple setup)
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
-        
+
         self.client = Anthropic(api_key=api_key)
         self.async_client = AsyncAnthropic(api_key=api_key)
-        
-        # Verify MCP server is accessible
-        self._verify_mcp_server()
-        
-        logger.info(f"MCP Client initialized: {mcp_server_url}")
-        
+
+        logger.info("Product Search Client initialized with direct database integration")
+
         # Cache for tools and server instance
         self._tools_cache = None
         self._server_instance = None
-    
-    def _verify_mcp_server(self):
-        """Verify MCP server is running and accessible"""
-        try:
-            # Try to connect to SSE endpoint (404 on root is expected for MCP servers)
-            response = httpx.get(f"{self.mcp_server_url}/sse", timeout=5.0)
-            # SSE endpoint might return 200, 400, or hang - any response means server is up
-            logger.info(f"MCP server accessible at {self.mcp_server_url}")
-        except httpx.ConnectError as e:
-            # Connection refused - server not running
-            logger.error(f"Cannot connect to MCP server at {self.mcp_server_url}: {e}")
-            raise RuntimeError(
-                f"MCP server not accessible at {self.mcp_server_url}. "
-                f"Make sure it's running with: python mcp_server_http.py"
-            )
-        except (httpx.TimeoutException, httpx.ReadTimeout):
-            # Timeout is actually OK for SSE endpoint (it's designed to keep connections open)
-            logger.info(f"MCP server accessible at {self.mcp_server_url} (SSE endpoint responding)")
-        except Exception as e:
-            # Other errors - log but don't fail (server might still work)
-            logger.warning(f"MCP server health check returned unexpected response: {e}")
-            logger.info(f"Proceeding anyway - MCP server may still be functional")
     
     def send_message(self, messages: list, stream: bool = True):
         """
@@ -216,24 +189,24 @@ class MCPClient:
         which contains the evidence-based search methodology.
         """
         try:
-            # Import MCP_SERVER_PATH from config
+            # Import SYSTEM_INSTRUCTIONS_PATH from config
             from pathlib import Path
-            from config import MCP_SERVER_PATH
-            
-            # Look for system instructions in the configured MCP server path
+            from config import SYSTEM_INSTRUCTIONS_PATH
+
+            # Look for system instructions in the configured path
             possible_paths = [
-                MCP_SERVER_PATH / "updated_system_instructions.md",
-                MCP_SERVER_PATH / "system_instructions.md",
+                SYSTEM_INSTRUCTIONS_PATH / "updated_system_instructions.md",
+                SYSTEM_INSTRUCTIONS_PATH / "system_instructions.md",
                 Path("./system_instructions.md"),  # Fallback to local
             ]
-            
+
             for path in possible_paths:
                 if path.exists():
                     with open(path, 'r', encoding='utf-8') as f:
                         logger.info(f"Loaded system instructions from {path}")
                         return f.read()
-            
-            logger.warning(f"System instructions not found in {MCP_SERVER_PATH}, using default")
+
+            logger.warning(f"System instructions not found in {SYSTEM_INSTRUCTIONS_PATH}, using default")
             return self._get_default_system_prompt()
                 
         except Exception as e:
@@ -284,11 +257,11 @@ Your goal is to find the right products efficiently while maintaining absolute h
             import sys
             import config
             
-            # Add path for WooCommerceMCPServer
-            mcp_path = str(config.MCP_SERVER_PATH)
-            if mcp_path not in sys.path:
-                sys.path.append(mcp_path)
-            
+            # Add path for WooCommerceMCPServer import
+            server_path = str(config.SYSTEM_INSTRUCTIONS_PATH)
+            if server_path not in sys.path:
+                sys.path.append(server_path)
+
             try:
                 from prod_find import WooCommerceMCPServer
 
@@ -302,10 +275,10 @@ Your goal is to find the right products efficiently while maintaining absolute h
 
                 self._server_instance = WooCommerceMCPServer(db_path)
                 logger.info(f"WooCommerceMCPServer initialized with database: {db_path}")
-                
+
             except ImportError as e:
                 logger.error(f"Failed to import WooCommerceMCPServer: {e}")
-                raise RuntimeError(f"Could not import MCP server from {config.MCP_SERVER_PATH}")
+                raise RuntimeError(f"Could not import MCP server from {config.SYSTEM_INSTRUCTIONS_PATH}")
             except FileNotFoundError as e:
                 logger.error(f"Database file not found: {e}")
                 raise RuntimeError(f"Database file not accessible: {e}")
@@ -544,22 +517,21 @@ Your goal is to find the right products efficiently while maintaining absolute h
 
 _mcp_client = None
 
-def init_mcp_client(mcp_server_url: str):
+def init_mcp_client():
     """
-    Initialize global MCP client instance
-    
-    Args:
-        mcp_server_url: URL of MCP HTTP server (e.g., "http://localhost:8000")
+    Initialize global product search client instance
+
+    Sets up Claude API client with direct database integration.
+    No HTTP MCP server required.
     """
     global _mcp_client
-    _mcp_client = MCPClient(mcp_server_url)
-    logger.info("MCP client initialized successfully")
+    _mcp_client = MCPClient()
+    logger.info("Product search client initialized successfully")
 
 def get_mcp_client() -> MCPClient:
-    """Get global MCP client instance"""
+    """Get global product search client instance"""
     if _mcp_client is None:
         raise RuntimeError(
-            "MCP client not initialized. Call init_mcp_client() first. "
-            "Make sure MCP server is running."
+            "Product search client not initialized. Call init_mcp_client() first."
         )
     return _mcp_client

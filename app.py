@@ -1,8 +1,8 @@
 """
-FastHTML MCP Chat - Main Application
+FastHTML Product Search Chat - Main Application
 
 Entry point for the web application that provides a chat interface
-to the MCP WooCommerce server via HTTP.
+with product search capabilities via direct database integration.
 """
 
 from fasthtml.common import *
@@ -66,22 +66,8 @@ auth.register_routes(app, include_admin=True)
 # Initialize databases
 init_database()
 
-# Initialize MCP client (connects to HTTP server)
-try:
-    init_mcp_client(mcp_server_url=config.MCP_SERVER_URL)
-except RuntimeError as e:
-    print("\n" + "=" * 60)
-    print("⚠️  MCP SERVER NOT RUNNING")
-    print("=" * 60)
-    print(f"Error: {e}")
-    print("\nThe MCP server must be running before starting the web app.")
-    print(f"\nStart it with:")
-    print(f"  cd {config.MCP_SERVER_PATH}")
-    print(f"  python mcp_server_http.py")
-    print("\nThen restart this web app.")
-    print("=" * 60 + "\n")
-    import sys
-    sys.exit(1)
+# Initialize MCP client (direct database integration)
+init_mcp_client()
 
 # ============================================
 # Routes
@@ -167,8 +153,9 @@ async def startup():
     logger = logging.getLogger(__name__)
     
     print("=" * 60)
-    print("FastHTML MCP Chat Starting...")
-    print(f"MCP Server URL: {config.MCP_SERVER_URL}")
+    print("FastHTML Product Search Chat Starting...")
+    print(f"System Instructions: {config.SYSTEM_INSTRUCTIONS_PATH}")
+    print(f"Product DB: {config.PRODUCT_DB_PATH}")
     print(f"Users DB: {config.USERS_DB_PATH}")
     print(f"Conversations DB: {config.CONVERSATIONS_DB_PATH}")
     print("Logging level: INFO")

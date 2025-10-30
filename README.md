@@ -87,8 +87,11 @@ nano .env  # or use your preferred editor
 # CRITICAL: Change in production!
 SECRET_KEY=your-random-secret-key-here
 
-# Path to MCP server (relative or absolute)
-MCP_SERVER_PATH=../mcp-woocommerce-server
+# Path to directory containing system instructions (relative or absolute)
+SYSTEM_INSTRUCTIONS_PATH=../pbt_prodfind
+
+# Path to product database for function calls
+PRODUCT_DB_PATH=../pbt_prodfind/db_for_prod_search.db
 
 # Anthropic API key
 ANTHROPIC_API_KEY=sk-ant-...your-key-here
@@ -180,7 +183,8 @@ fasthtml-mcp-chat/
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `SECRET_KEY` | Session encryption key | MUST SET IN PRODUCTION |
-| `MCP_SERVER_PATH` | Path to MCP server directory | `../mcp-woocommerce-server` |
+| `SYSTEM_INSTRUCTIONS_PATH` | Path to system instructions directory | `../pbt_prodfind` |
+| `PRODUCT_DB_PATH` | Path to product database | `../pbt_prodfind/db_for_prod_search.db` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | Required |
 | `DEBUG` | Debug mode | `False` |
 | `HOST` | Server host | `0.0.0.0` |
@@ -347,11 +351,11 @@ mypy app.py models/ routes/ services/
 
 ### MCP Server Not Found
 
-**Error:** `MCP server path does not exist`
+**Error:** `Product database not found`
 
-**Fix:** Update `MCP_SERVER_PATH` in `.env`:
+**Fix:** Update `PRODUCT_DB_PATH` in `.env`:
 ```env
-MCP_SERVER_PATH=/absolute/path/to/mcp-woocommerce-server
+PRODUCT_DB_PATH=/absolute/path/to/db_for_prod_search.db
 ```
 
 ### Database Errors

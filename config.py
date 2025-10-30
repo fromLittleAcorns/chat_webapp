@@ -27,23 +27,20 @@ USERS_DB_PATH = DATA_DIR / "users.db"
 CONVERSATIONS_DB_PATH = DATA_DIR / "conversations.db"
 
 # ============================================
-# MCP Server Configuration (HTTP) (Note commented out since later version no longer
-# uses mcp but instead uses direct database calls)
+# Product Database Configuration
 # ============================================
 
-# MCP server runs as separate HTTP service
-# MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
-
-# Optional: Path to MCP server directory (for loading system instructions)
-MCP_SERVER_PATH = Path(os.getenv(
-    "MCP_SERVER_PATH",
+# Path to directory containing system instructions
+# (Historical note: This directory also contains the MCP server for Claude Desktop)
+SYSTEM_INSTRUCTIONS_PATH = Path(os.getenv(
+    "SYSTEM_INSTRUCTIONS_PATH",
     "../pbt_prodfind"
 )).resolve()
 
 # Product database path (for function calls to WooCommerce database)
 PRODUCT_DB_PATH = Path(os.getenv(
     "PRODUCT_DB_PATH",
-    str(MCP_SERVER_PATH / "db_for_prod_search.db")
+    str(SYSTEM_INSTRUCTIONS_PATH / "db_for_prod_search.db")
 )).resolve()
 
 # ============================================
@@ -130,16 +127,7 @@ def validate_config():
     """Validate critical configuration settings"""
     
     errors = []
-    
-    # Check MCP server URL format
-    if not MCP_SERVER_URL.startswith("http://") and not MCP_SERVER_URL.startswith("https://"):
-        errors.append(f"MCP_SERVER_URL must start with http:// or https://: {MCP_SERVER_URL}")
-    
-    # Warn if MCP server is not localhost in production
-    if not DEBUG and "localhost" not in MCP_SERVER_URL and "127.0.0.1" not in MCP_SERVER_URL:
-        print(f"⚠️  WARNING: MCP server is not on localhost: {MCP_SERVER_URL}")
-        print("   Make sure this is intentional and properly secured.")
-    
+
     # Check API key
     if not ANTHROPIC_API_KEY:
         errors.append("ANTHROPIC_API_KEY not set in environment")
@@ -169,12 +157,11 @@ def print_config():
     """Print current configuration (for debugging)"""
     
     print("=" * 60)
-    print("FastHTML MCP Chat Configuration")
+    print("FastHTML Product Search Chat Configuration")
     print("=" * 60)
     print(f"Base Directory: {BASE_DIR}")
     print(f"Data Directory: {DATA_DIR}")
-    print(f"MCP Server URL: {MCP_SERVER_URL}")
-    print(f"MCP Server Path: {MCP_SERVER_PATH} (for system instructions)")
+    print(f"System Instructions: {SYSTEM_INSTRUCTIONS_PATH}")
     print(f"Product DB: {PRODUCT_DB_PATH}")
     print(f"Users DB: {USERS_DB_PATH}")
     print(f"Conversations DB: {CONVERSATIONS_DB_PATH}")
@@ -182,10 +169,6 @@ def print_config():
     print(f"Host: {HOST}:{PORT}")
     print(f"API Key Set: {'Yes' if ANTHROPIC_API_KEY else 'No'}")
     print(f"Streaming: {'Enabled' if STREAMING_ENABLED else 'Disabled'}")
-    print("=" * 60)
-    print()
-    print("⚠️  IMPORTANT: MCP Server must be running separately!")
-    print(f"   Start it with: cd {MCP_SERVER_PATH} && python mcp_server_http.py")
     print("=" * 60)
 
 # ============================================
