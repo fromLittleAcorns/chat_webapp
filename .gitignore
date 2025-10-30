@@ -86,8 +86,10 @@ data/*.sqlite3
 *.sqlite
 *.sqlite3
 logs/
+*.logs
 temp/
 tmp/
+.sesskey
 
 # Development
 .mypy_cache/

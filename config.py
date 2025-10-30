@@ -27,16 +27,23 @@ USERS_DB_PATH = DATA_DIR / "users.db"
 CONVERSATIONS_DB_PATH = DATA_DIR / "conversations.db"
 
 # ============================================
-# MCP Server Configuration (HTTP)
+# MCP Server Configuration (HTTP) (Note commented out since later version no longer
+# uses mcp but instead uses direct database calls)
 # ============================================
 
 # MCP server runs as separate HTTP service
-MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
+# MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8000")
 
 # Optional: Path to MCP server directory (for loading system instructions)
 MCP_SERVER_PATH = Path(os.getenv(
     "MCP_SERVER_PATH",
     "../pbt_prodfind"
+)).resolve()
+
+# Product database path (for function calls to WooCommerce database)
+PRODUCT_DB_PATH = Path(os.getenv(
+    "PRODUCT_DB_PATH",
+    str(MCP_SERVER_PATH / "db_for_prod_search.db")
 )).resolve()
 
 # ============================================
@@ -140,11 +147,18 @@ def validate_config():
     # Check secret key in production
     if not DEBUG and SECRET_KEY == "dev-secret-key-CHANGE-IN-PRODUCTION":
         errors.append("SECRET_KEY must be changed in production")
-    
+
+    # Check product database path exists
+    if not PRODUCT_DB_PATH.exists():
+        errors.append(f"Product database not found at: {PRODUCT_DB_PATH}")
+        print(f"⚠️  WARNING: Product database missing. MCP tools will not work.")
+        print(f"   Expected location: {PRODUCT_DB_PATH}")
+        print(f"   Set PRODUCT_DB_PATH in .env to correct location.")
+
     if errors:
         error_msg = "\n".join(f"  - {err}" for err in errors)
         raise ValueError(f"Configuration errors:\n{error_msg}")
-    
+
     return True
 
 # ============================================
@@ -161,6 +175,7 @@ def print_config():
     print(f"Data Directory: {DATA_DIR}")
     print(f"MCP Server URL: {MCP_SERVER_URL}")
     print(f"MCP Server Path: {MCP_SERVER_PATH} (for system instructions)")
+    print(f"Product DB: {PRODUCT_DB_PATH}")
     print(f"Users DB: {USERS_DB_PATH}")
     print(f"Conversations DB: {CONVERSATIONS_DB_PATH}")
     print(f"Debug Mode: {DEBUG}")

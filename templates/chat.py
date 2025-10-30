@@ -24,7 +24,7 @@ def chat_page(user, conversations, current_conv_id, messages):
     """
     
     return (
-        Title("MCP Chat - WooCommerce Search"),
+        Title("PBT Chat - Product Search"),
         # Main container - using DaisyUI drawer for sidebar
         Div(
             # Hidden checkbox required for drawer functionality
@@ -55,7 +55,7 @@ def sidebar(user, conversations, current_conv_id):
         Div(
             # Header with user info
             Div(
-                H3("MCP Chat", cls="text-xl font-bold"),
+                H3("PBT Chat", cls="text-xl font-bold"),
                 Div(
                     Div("👤", cls="text-2xl"),
                     Div(
@@ -150,8 +150,8 @@ def chat_area(current_conv_id, messages):
             # If no messages, show welcome
             Div(
                 Div(
-                    H2("👋 Welcome to MCP Chat", cls="text-3xl font-bold mb-4"),
-                    P("Ask questions about WooCommerce products. I'll search the database and provide detailed, evidence-based answers.", 
+                    H2("👋 Welcome to PBT Chat", cls="text-3xl font-bold mb-4"),
+                    P("Define requirements for PoweredByTrade products. I'll search the database and provide detailed, evidence-based answers.", 
                       cls="text-lg mb-2"),
                     P("Try asking about specific products, materials, finishes, or certifications.", 
                       cls="text-base-content/70"),

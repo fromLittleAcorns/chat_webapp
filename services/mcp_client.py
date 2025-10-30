@@ -291,15 +291,15 @@ Your goal is to find the right products efficiently while maintaining absolute h
             
             try:
                 from prod_find import WooCommerceMCPServer
-                
-                # Database path
-                db_path = "/Users/johnri/Library/Mobile Documents/com~apple~CloudDocs/Documents/james/james_data/database/db_for_prod_search.db"
-                
+
+                # Get database path from config
+                db_path = str(config.PRODUCT_DB_PATH)
+
                 # Verify database exists
                 import os
                 if not os.path.exists(db_path):
-                    raise FileNotFoundError(f"Database not found at: {db_path}")
-                
+                    raise FileNotFoundError(f"Product database not found at: {db_path}")
+
                 self._server_instance = WooCommerceMCPServer(db_path)
                 logger.info(f"WooCommerceMCPServer initialized with database: {db_path}")
                 
