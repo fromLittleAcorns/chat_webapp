@@ -136,12 +136,13 @@ def validate_config():
     if not DEBUG and SECRET_KEY == "dev-secret-key-CHANGE-IN-PRODUCTION":
         errors.append("SECRET_KEY must be changed in production")
 
-    # Check product database path exists
+    # Check product database path exists (warning only - not critical for setup)
     if not PRODUCT_DB_PATH.exists():
-        errors.append(f"Product database not found at: {PRODUCT_DB_PATH}")
-        print(f"⚠️  WARNING: Product database missing. MCP tools will not work.")
+        print(f"⚠️  WARNING: Product database not found at: {PRODUCT_DB_PATH}")
+        print(f"   Product search features will not work until database is available.")
         print(f"   Expected location: {PRODUCT_DB_PATH}")
         print(f"   Set PRODUCT_DB_PATH in .env to correct location.")
+        print(f"   This is OK during initial setup - add database before starting app.")
 
     if errors:
         error_msg = "\n".join(f"  - {err}" for err in errors)
