@@ -60,10 +60,15 @@ def sidebar(user, conversations, current_conv_id):
                     Div("👤", cls="text-2xl"),
                     Div(
                         Div(user.username, cls="font-semibold"),
+                        Div(user.role.upper(), cls="text-xs opacity-70") if user.role == 'admin' else None,
                         cls="ml-2"
                     ),
-                    cls="flex items-center mt-2"
+                    cls="flex items-center mt-2"            
                 ),
+                # Admin link (only show for admins)
+                 A("⚙️ Admin Panel" if user.role == 'admin' else "👤 My Profile", 
+                  href="/auth/admin" if user.role == 'admin' else "/auth/profile",
+                  cls="btn btn-secondary btn-sm mt-2 w-full"),
                 A("Logout", 
                   href="/auth/logout", 
                   cls="btn btn-outline btn-sm mt-3 w-full"),
