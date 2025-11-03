@@ -55,49 +55,61 @@ def setup_database():
             }
         )
         
-        # Initialize database
+        # Initialize database (this creates the 'user' table and default admin)
         db = auth.initialize()
         
         print("✅ Users database initialized")
+        print("✅ Default 'admin' user created by fasthtml-auth")
         
-        # Check if admin user already exists
-        existing_users = db.execute("SELECT username FROM users").fetchall()
-        existing_usernames = [row[0] for row in existing_users]
+        # Check if our custom admin user already exists
+        custom_admin = auth.get_user(config.ADMIN_USERNAME)
         
-        if config.ADMIN_USERNAME in existing_usernames:
+        if custom_admin:
             print(f"\n⚠️  User '{config.ADMIN_USERNAME}' already exists")
             overwrite = input("Update password? (y/n): ").lower()
             if overwrite != 'y':
                 print("Setup cancelled.")
                 return
             
-            # Update password using auth manager's method
-            db.execute(
-                "UPDATE users SET password_hash = ? WHERE username = ?",
-                (auth.hash_password(config.ADMIN_PASSWORD), config.ADMIN_USERNAME)
+            # Update password using the user repository
+            success = auth.user_repo.update(
+                custom_admin.id,
+                password=config.ADMIN_PASSWORD,
+                email=config.ADMIN_EMAIL or custom_admin.email
             )
-            db.commit()
-            print(f"✅ Password updated for '{config.ADMIN_USERNAME}'")
+            
+            if success:
+                print(f"✅ Password updated for '{config.ADMIN_USERNAME}'")
+            else:
+                print(f"❌ Failed to update password for '{config.ADMIN_USERNAME}'")
+                
         else:
-            # Create new admin user
-            # Use auth manager's user creation (it handles password hashing)
-            db.execute(
-                """INSERT INTO users (username, email, password_hash, is_admin, created_at)
-                   VALUES (?, ?, ?, ?, datetime('now'))""",
-                (
-                    config.ADMIN_USERNAME,
-                    config.ADMIN_EMAIL,
-                    auth.hash_password(config.ADMIN_PASSWORD),
-                    1  # is_admin = True
-                )
+            # Create new custom admin user using the repository
+            print(f"\n👤 Creating custom admin user '{config.ADMIN_USERNAME}'...")
+            
+            new_admin = auth.user_repo.create(
+                username=config.ADMIN_USERNAME,
+                email=config.ADMIN_EMAIL or f"{config.ADMIN_USERNAME}@system.local",
+                password=config.ADMIN_PASSWORD,
+                role='admin'
             )
-            db.commit()
-            print(f"✅ Admin user '{config.ADMIN_USERNAME}' created successfully!")
+            
+            if new_admin:
+                print(f"✅ Admin user '{config.ADMIN_USERNAME}' created successfully!")
+            else:
+                print(f"❌ Failed to create admin user '{config.ADMIN_USERNAME}'")
+                sys.exit(1)
         
         # Initialize conversations database
         from models import init_database
         init_database()
         print("✅ Conversations database initialized")
+        
+        # Show all users (for verification)
+        all_users = auth.user_repo.list_all()
+        print(f"\n📊 Total users in database: {len(all_users)}")
+        for user in all_users:
+            print(f"   - {user.username} ({user.role}) - Email: {user.email}")
         
         print("\n📝 Next steps:")
         print("   1. Start your application:")
@@ -106,12 +118,13 @@ def setup_database():
         print("   2. Visit your site:")
         print("      Development: http://localhost:5001")
         print("      Production: https://chat.therichmond4.co.uk")
-        print("   3. Login with the admin credentials from .env")
+        print(f"   3. Login with username: {config.ADMIN_USERNAME}")
         print("   4. IMPORTANT: Change the admin password after first login!")
         print("\n🔒 Security reminders:")
         print("   - Keep .env secure (it's in .gitignore)")
         print("   - Change admin password through the app")
         print("   - Consider removing ADMIN_PASSWORD from .env after setup")
+        print("   - Delete the default 'admin' user if you created a custom admin")
         
     except Exception as e:
         print(f"\n❌ Error during setup: {e}")
