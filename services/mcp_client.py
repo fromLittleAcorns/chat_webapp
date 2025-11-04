@@ -257,33 +257,36 @@ Your goal is to find the right products efficiently while maintaining absolute h
             import sys
             import config
             
+            logger.info(f"🔍 Attempting to load WooCommerce server...")
+            logger.info(f"🔍 SYSTEM_INSTRUCTIONS_PATH: {config.SYSTEM_INSTRUCTIONS_PATH}")
+            logger.info(f"🔍 PRODUCT_DB_PATH: {config.PRODUCT_DB_PATH}")
+            logger.info(f"🔍 sys.path: {sys.path}")
+
             # Add path for WooCommerceMCPServer import
             server_path = str(config.SYSTEM_INSTRUCTIONS_PATH)
             if server_path not in sys.path:
                 sys.path.append(server_path)
-
+                logger.info(f"✅ Added {server_path} to sys.path")
             try:
+                logger.info(f"🔍 Attempting: from prod_find import WooCommerceMCPServer")
                 from prod_find import WooCommerceMCPServer
-
-                # Get database path from config
+                logger.info(f"✅ Successfully imported WooCommerceMCPServer")
+            
                 db_path = str(config.PRODUCT_DB_PATH)
-
-                # Verify database exists
-                import os
-                if not os.path.exists(db_path):
-                    raise FileNotFoundError(f"Product database not found at: {db_path}")
-
+                logger.info(f"🔍 Initializing with db_path: {db_path}")
+            
                 self._server_instance = WooCommerceMCPServer(db_path)
-                logger.info(f"WooCommerceMCPServer initialized with database: {db_path}")
+                logger.info(f"✅ WooCommerceMCPServer initialized")
+                
 
             except ImportError as e:
-                logger.error(f"Failed to import WooCommerceMCPServer: {e}")
+                logger.error(f"Import failed: {e}, exc_info=True")
                 raise RuntimeError(f"Could not import MCP server from {config.SYSTEM_INSTRUCTIONS_PATH}")
             except FileNotFoundError as e:
                 logger.error(f"Database file not found: {e}")
                 raise RuntimeError(f"Database file not accessible: {e}")
             except Exception as e:
-                logger.error(f"Failed to initialize WooCommerceMCPServer: {e}")
+                logger.error(f"Failed to initialize WooCommerceMCPServer: {e}, exc_info=True")
                 raise RuntimeError(f"Could not initialize database server: {e}")
                 
         return self._server_instance
