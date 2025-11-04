@@ -161,6 +161,220 @@ location / {
 }
 ```
 
+### SSL/TLS Certificate Setup (Let's Encrypt)
+
+After initial deployment, you need to secure the site with HTTPS using Let's Encrypt.
+
+#### Prerequisites
+
+**1. Verify DNS is configured:**
+```bash
+# Check DNS resolves to your server
+nslookup chat.therichmond4.co.uk
+# Should return: 217.154.63.51 (your server IP)
+```
+
+**2. Ensure Nginx proxy is working:**
+```bash
+# Test HTTP access
+curl http://chat.therichmond4.co.uk
+# Should return your app's HTML, not 404
+```
+
+#### Step 1: Create Let's Encrypt Directory
+
+Plesk's auto-generated nginx config expects ACME challenge files in a specific location:
+
+```bash
+# Create the directory where Plesk looks for ACME challenges
+sudo mkdir -p /var/www/vhosts/default/htdocs/.well-known/acme-challenge
+
+# Set proper ownership and permissions
+sudo chown -R www-data:www-data /var/www/vhosts/default/htdocs/.well-known
+sudo chmod -R 755 /var/www/vhosts/default/htdocs/.well-known
+
+# Test it's accessible
+echo "test" | sudo tee /var/www/vhosts/default/htdocs/.well-known/acme-challenge/test.txt
+curl http://chat.therichmond4.co.uk/.well-known/acme-challenge/test.txt
+# Should return: test
+```
+
+#### Step 2: Use Certbot to Get Certificate
+
+Plesk's built-in Let's Encrypt often tries to use DNS validation which requires manual TXT records. Instead, use certbot directly with HTTP validation:
+
+```bash
+# Install certbot if not already installed
+sudo apt update
+sudo apt install certbot
+
+# Request certificate using HTTP validation
+sudo certbot certonly --webroot \
+    -w /var/www/vhosts/default/htdocs \
+    -d chat.therichmond4.co.uk \
+    --agree-tos \
+    --email your-email@example.com
+
+# Certificate files will be created in:
+# /etc/letsencrypt/live/chat.therichmond4.co.uk/
+```
+
+#### Step 3: Prepare Certificate for Plesk
+
+Plesk requires the certificate and private key in a single file:
+
+```bash
+# Combine certificate and key into one file
+sudo cat /etc/letsencrypt/live/chat.therichmond4.co.uk/fullchain.pem \
+         /etc/letsencrypt/live/chat.therichmond4.co.uk/privkey.pem \
+         > /tmp/combined.pem
+
+# Copy to a location you can download from
+sudo cp /tmp/combined.pem /var/www/vhosts/therichmond4.co.uk/chat.therichmond4.co.uk/
+sudo chown therichmond4.co.uk_6213ltvyukj:psacln /var/www/vhosts/therichmond4.co.uk/chat.therichmond4.co.uk/combined.pem
+```
+
+#### Step 4: Upload Certificate to Plesk
+
+**Option A: Using Plesk UI (Recommended)**
+
+1. Download `combined.pem` to your local machine (using scp or Plesk file manager)
+2. In Plesk, go to **Websites & Domains** → `chat.therichmond4.co.uk`
+3. Click **SSL/TLS Certificates**
+4. Click **Upload Certificate Files** or **Add SSL/TLS Certificate**
+5. Upload the `combined.pem` file
+6. Activate the certificate for your domain
+
+**Option B: Using Plesk CLI**
+
+```bash
+# Install certificate directly via command line
+sudo /usr/local/psa/bin/certificate \
+    --create chat-letsencrypt \
+    -cert-file /etc/letsencrypt/live/chat.therichmond4.co.uk/fullchain.pem \
+    -key-file /etc/letsencrypt/live/chat.therichmond4.co.uk/privkey.pem
+
+# Assign it to your domain
+sudo /usr/local/psa/bin/subscription \
+    --update chat.therichmond4.co.uk \
+    -certificate-name chat-letsencrypt
+```
+
+#### Step 5: Enable HTTPS Redirect
+
+In Plesk:
+1. Go to **Websites & Domains** → `chat.therichmond4.co.uk`
+2. Click **Hosting Settings**
+3. Find **Security** section
+4. Enable: ✅ **Permanent SEO-safe 301 redirect from HTTP to HTTPS**
+5. Click **OK**
+
+#### Step 6: Set Up Auto-Renewal
+
+Let's Encrypt certificates expire every 90 days. Certbot usually sets up automatic renewal:
+
+```bash
+# Test renewal (dry run - doesn't actually renew)
+sudo certbot renew --dry-run
+
+# Check if auto-renewal timer is active
+sudo systemctl status certbot.timer
+
+# If timer is not active, enable it
+sudo systemctl enable certbot.timer
+sudo systemctl start certbot.timer
+
+# View renewal history
+sudo certbot certificates
+```
+
+#### Verification
+
+**1. Test in browser:**
+- Visit `https://chat.therichmond4.co.uk`
+- Click the padlock icon
+- Should show "Let's Encrypt" as issuer
+- Certificate should be valid
+
+**2. Test SSL configuration:**
+```bash
+# Check certificate details
+openssl s_client -connect chat.therichmond4.co.uk:443 -servername chat.therichmond4.co.uk < /dev/null 2>/dev/null | openssl x509 -noout -text | grep -A2 "Issuer"
+
+# Should show: Issuer: C = US, O = Let's Encrypt
+```
+
+**3. Test auto-redirect:**
+```bash
+curl -I http://chat.therichmond4.co.uk
+# Should return: HTTP/1.1 301 Moved Permanently
+# Location: https://chat.therichmond4.co.uk/
+```
+
+#### Troubleshooting SSL Issues
+
+**Problem: "unable to open database file" errors after SSL setup**
+- The database might need proper permissions for the systemd user
+- See "Product Database Setup" section below
+
+**Problem: Certificate shows as self-signed/Plesk certificate**
+- The new certificate wasn't activated in Plesk
+- Go to SSL/TLS Certificates and ensure the Let's Encrypt cert is selected
+
+**Problem: certbot fails with "Connection refused"**
+- Port 80 might not be accessible
+- Check firewall: `sudo ufw status`
+- Check nginx is running: `sudo systemctl status nginx`
+
+**Problem: "Mixed content" warnings in browser**
+- Some resources loading via HTTP instead of HTTPS
+- Check browser console for details
+- Ensure all links and resources use HTTPS or relative URLs
+
+**Problem: Certificate renewal fails**
+- Check renewal logs: `sudo cat /var/log/letsencrypt/letsencrypt.log`
+- Verify `.well-known` directory is still accessible
+- Manually renew: `sudo certbot renew --force-renewal`
+
+#### Manual Certificate Renewal
+
+If auto-renewal fails:
+
+```bash
+# Force renewal
+sudo certbot renew --force-renewal
+
+# Then update in Plesk (repeat Step 3-4)
+```
+
+### Product Database Setup
+
+If you encounter database connection issues, ensure the product database is accessible:
+
+```bash
+# Option 1: Fix permissions on existing location
+sudo chmod 755 /home/john
+sudo chmod 755 /home/john/data
+sudo chmod 755 /home/john/data/pbt_database
+sudo chmod 644 /home/john/data/pbt_database/db_for_prod_search.db
+
+# Option 2: Move to standard system location (recommended)
+sudo mkdir -p /var/lib/chat_webapp/product_db
+sudo cp /home/john/data/pbt_database/db_for_prod_search.db \
+    /var/lib/chat_webapp/product_db/
+sudo chown -R therichmond4.co.uk_6213ltvyukj:psacln /var/lib/chat_webapp
+sudo chmod 755 /var/lib/chat_webapp
+sudo chmod 755 /var/lib/chat_webapp/product_db
+sudo chmod 644 /var/lib/chat_webapp/product_db/db_for_prod_search.db
+
+# Update .env file
+nano /var/www/vhosts/therichmond4.co.uk/chat.therichmond4.co.uk/chat_webapp/.env
+# Change PRODUCT_DB_PATH to: /var/lib/chat_webapp/product_db/db_for_prod_search.db
+
+# Restart app
+systemctl restart chat-app
+```
+
 ### Code Updates After Initial Deployment
 
 ```bash
@@ -260,6 +474,7 @@ pip install -r requirements.txt
 - [ ] `.env` file has 600 permissions (only owner can read)
 - [ ] API keys are set and kept secure
 - [ ] Removed or commented `ADMIN_PASSWORD` from .env after setup
+- [ ] SSL/TLS certificate installed and auto-renewal configured
 
 ## Quick Reference
 
@@ -280,9 +495,11 @@ journalctl -u chat-app -f   # View logs
 - **App code:** `/var/www/vhosts/therichmond4.co.uk/chat.therichmond4.co.uk/chat_webapp/`
 - **Virtual env:** `chat_webapp/venv/`
 - **Databases:** `chat_webapp/data/`
+- **Product DB:** `/var/lib/chat_webapp/product_db/db_for_prod_search.db` (or `/home/john/data/pbt_database/db_for_prod_search.db`)
 - **Config:** `chat_webapp/.env`
 - **Service:** `/etc/systemd/system/chat-app.service`
 - **Logs:** `journalctl -u chat-app` or `chat_webapp/logs/`
+- **SSL Certificates:** `/etc/letsencrypt/live/chat.therichmond4.co.uk/`
 
 ## Benefits of This Setup
 
@@ -293,3 +510,4 @@ journalctl -u chat-app -f   # View logs
 ✅ **Easy admin setup** - One script creates admin user
 ✅ **Secure by default** - Credentials in .env (gitignored)
 ✅ **Easy to deploy** - Copy .prod_env to server, rename to .env, run setup
+✅ **HTTPS secured** - Let's Encrypt SSL with auto-renewal
